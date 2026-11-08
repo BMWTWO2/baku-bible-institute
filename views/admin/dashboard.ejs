@@ -1,0 +1,13 @@
+<%- include('../partials/head') %>
+<div class="pagehead rise"><div><p class="eyebrow">Salam, <%= user.name.split(' ')[0] %></p><h1>Institute dashboard</h1></div><a class="btn" href="/admin/report">Weekly report →</a></div>
+<div class="kpis rise d1">
+<a class="kpi" href="/admin/students"><b><%= r.totals.students %></b><span>Active students</span></a>
+<a class="kpi" href="/admin/attendance"><b><%= r.totals.attendanceRate ?? '—' %>%</b><span>Attendance rate</span></a>
+<a class="kpi warn" href="/admin/attendance"><b><%= r.findings.sentinel.length %></b><span>Sentinel flags (&gt;2 unexcused)</span></a>
+<a class="kpi" href="/admin/whatsapp"><b><%= r.totals.pendingWhatsApp %></b><span>WhatsApp pending</span></a>
+<a class="kpi" href="/admin/homework"><b><%= r.totals.homeworkAwaiting %></b><span>Homework to review</span></a>
+<a class="kpi" href="/admin/students"><b><%= r.totals.applicants %></b><span>Applicants</span></a></div>
+<div class="cols rise d2">
+<section class="card"><h2>What the bots see</h2><ul class="botlist"><% bots.filter(b=>b.key!=='chronicler').forEach(b=>{ const f=r.findings[b.key]; %><li><span class="bi"><%= b.icon %></span><div><b><%= b.name %></b> <span class="pill <%= f.length?'amber':'green' %>"><%= f.length %></span><br><span class="muted small"><%= f[0] ? f[0].text : 'All clear' %></span></div></li><% }) %></ul></section>
+<section class="card"><h2>Latest WhatsApp</h2><% recentWa.forEach(m=>{ %><div class="wa-mini"><b><%= m.contact_name || m.from_number %></b><span class="pill <%= m.status==='pending'?'amber':'' %>"><%= m.status %></span><p><%= m.body %></p></div><% }) %><a href="/admin/whatsapp">Open inbox →</a></section></div>
+<%- include('../partials/foot') %>

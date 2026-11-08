@@ -1,0 +1,9 @@
+<%- include('../partials/head') %>
+<div class="pagehead rise"><h1>Roster</h1><details class="add"><summary class="btn">+ Add student</summary><form method="post" action="/admin/students" class="card formgrid"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<label>Name<input name="name" required></label><label>WhatsApp<input name="whatsapp_phone" placeholder="+994…"></label><label>Email<input name="email" type="email"></label>
+<label>Language<select name="preferred_language"><option value="az">Azərbaycanca (az)</option><option value="ru">Русский</option><option value="en">English</option></select></label>
+<label>Status<select name="status"><option>applicant</option><option>active</option></select></label><label>Notes<input name="notes"></label><button class="btn">Save</button></form></details></div>
+<table class="tbl rise d1"><thead><tr><th>Name</th><th>Lang</th><th>WhatsApp</th><th>Email</th><th>Status</th><th>Classes</th><th>Flags</th></tr></thead><tbody>
+<% students.forEach(s=>{ %><tr><td><a href="/admin/students/<%= s.id %>"><b><%= s.name %></b></a><% if (s.is_demo) { %> <span class="pill">demo</span><% } %></td><td><%= s.preferred_language %></td><td><%= s.whatsapp_phone || '—' %></td><td class="small"><%= s.email %></td><td><span class="pill <%= s.status==='applicant'?'blue':s.status==='active'?'green':'' %>"><%= s.status %></span></td><td><%= s.classes %></td>
+<td><% if (s.flag) { %><span class="pill red">⚑ <%= s.flag.n %> unexcused · <%= s.flag.code %></span><% } %></td></tr><% }) %></tbody></table>
+<%- include('../partials/foot') %>

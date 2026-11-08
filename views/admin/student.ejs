@@ -1,0 +1,13 @@
+<%- include('../partials/head') %>
+<div class="pagehead rise"><div><p class="eyebrow"><a href="/admin/students">Roster</a></p><h1><%= s.name %></h1></div></div>
+<div class="cols rise d1"><form method="post" class="card formgrid"><input type="hidden" name="_csrf" value="<%= csrf %>"><h2 class="span">Profile</h2>
+<label>Name<input name="name" value="<%= s.name %>" required></label><label>Preferred language<select name="preferred_language"><% ['az','ru','en'].forEach(l=>{ %><option <%= s.preferred_language===l?'selected':'' %>><%= l %></option><% }) %></select></label>
+<label>WhatsApp<input name="whatsapp_phone" value="<%= s.whatsapp_phone||'' %>"></label><label>Email<input name="email" value="<%= s.email||'' %>"></label>
+<label>Status<select name="status"><% ['applicant','active','paused','graduated','withdrawn'].forEach(l=>{ %><option <%= s.status===l?'selected':'' %>><%= l %></option><% }) %></select></label>
+<label class="span">Notes<textarea name="notes"><%= s.notes||'' %></textarea></label><button class="btn">Save</button></form>
+<section class="card"><h2>Classes</h2><ul><% enr.forEach(e=>{ %><li><%= e.code %> — <%= e.title %></li><% }) %></ul>
+<form method="post" action="/admin/students/<%= s.id %>/enroll" class="row"><input type="hidden" name="_csrf" value="<%= csrf %>"><select name="section_id"><% sections.forEach(x=>{ %><option value="<%= x.id %>"><%= x.code %> <%= x.title %></option><% }) %></select><button class="btn sm">Enroll</button></form>
+<h2>Grades</h2><ul><% grades.forEach(g=>{ %><li><%= g.code %> · <%= g.title %>: <b><%= g.points %></b>/<%= g.max_points %></li><% }) %></ul>
+<h2>WhatsApp</h2><% msgs.forEach(m=>{ %><p class="small">“<%= m.body %>” <span class="muted"><%= m.received_at %></span></p><% }) %></section></div>
+<section class="card rise d2"><h2>Attendance</h2><div class="chips"><% att.forEach(a=>{ %><span class="chip <%= a.status %>"><%= a.session_date %> · <%= a.code %> · <%= a.status %></span><% }) %></div></section>
+<%- include('../partials/foot') %>

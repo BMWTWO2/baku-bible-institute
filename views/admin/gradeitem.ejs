@@ -1,0 +1,5 @@
+<%- include('../partials/head') %>
+<div class="pagehead rise"><div><p class="eyebrow"><a href="/admin/gradebook">Gradebook</a> · <%= item.code %></p><h1><%= item.title %></h1></div></div>
+<form method="post" class="card rise d1"><input type="hidden" name="_csrf" value="<%= csrf %>"><table class="tbl"><thead><tr><th>Student</th><th>Points / <%= item.max_points %></th><th>Comment</th></tr></thead><tbody>
+<% rows.forEach(r=>{ %><tr><td><%= r.name %></td><td><input class="num" type="number" step="0.5" min="0" max="<%= item.max_points %>" name="p_<%= r.id %>" value="<%= r.points ?? '' %>"></td><td class="small"><%= r.comment||'' %></td></tr><% }) %></tbody></table><button class="btn">Save grades</button></form>
+<%- include('../partials/foot') %>

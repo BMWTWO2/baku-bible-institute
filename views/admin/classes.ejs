@@ -1,0 +1,5 @@
+<%- include('../partials/head') %>
+<div class="pagehead rise"><h1>Classes · Payız 2026</h1></div>
+<div class="grid3 rise d1"><% sections.forEach(s=>{ const pct=Math.round(100*s.n/s.capacity); %><article class="card course"><p class="eyebrow"><%= s.code %></p><h3><%= s.title %></h3><p class="az"><%= s.title_az %></p><p class="muted small"><%= s.teacher %> · <%= s.schedule %> · <%= s.room %></p>
+<div class="bar"><i data-w="<%= Math.min(pct,100) %>" class="<%= pct>=90?'hot':'' %>"></i></div><p class="small"><%= s.n %>/<%= s.capacity %> seats</p></article><% }) %></div>
+<%- include('../partials/foot') %>

@@ -1,0 +1,12 @@
+<%- include('../partials/head', { lang: 'az' }) %>
+<div class="pagehead rise"><div><p class="eyebrow">Tələbə kabineti</p><h1>Xoş gəlmisiniz, <%= s.name.split(' ')[0] %>!</h1></div></div>
+<% const c=k=>(att.find(a=>a.status===k)||{n:0}).n; %>
+<div class="kpis rise d1"><div class="kpi"><b><%= c('present') %></b><span>İştirak</span></div><div class="kpi"><b><%= c('late') %></b><span>Gecikmə</span></div><div class="kpi warn"><b><%= c('absent') %></b><span>Üzrsüz qayıb</span></div><div class="kpi"><b><%= c('excused') %></b><span>Üzrlü qayıb</span></div></div>
+<% if (c('absent')>2) { %><p class="note">Diqqət: 2-dən çox üzrsüz qayıbınız var. Zəhmət olmasa müəlliminizlə əlaqə saxlayın.</p><% } %>
+<div class="cols rise d2"><section class="card"><h2>Dərslərim</h2><ul><% classes.forEach(x=>{ %><li><b><%= x.code %></b> — <%= x.title_az %><br><span class="small muted"><%= x.teacher %> · <%= x.schedule %> · <%= x.room %></span></li><% }) %></ul></section>
+<section class="card"><h2>Qiymətlərim</h2><ul><% grades.forEach(g=>{ %><li><%= g.code %> · <%= g.title %>: <b><%= g.points %></b> / <%= g.max_points %></li><% }) %></ul></section></div>
+<h2 class="rise">Ev tapşırıqları</h2>
+<div class="list rise d3"><% hw.forEach(h=>{ %><article class="card"><p class="eyebrow"><%= h.code %> · Son tarix: <%= h.due_date %></p><h3><%= h.title_az %></h3><p class="muted"><%= h.instructions_az %></p>
+<% if (h.sub_status==='returned') { %><p class="small"><b>Göndərdiyiniz cavab:</b> <%= h.body %></p><div class="feedback"><b>Müəllimin rəyi<% if (h.points!=null) { %> · <%= h.points %> bal<% } %></b><p><%= h.final_az %></p></div>
+<% } else { %><% if (h.sub_status) { %><p class="pill blue">Göndərilib — müəllim yoxlayır</p><% } %><form method="post" action="/telebe/tapsiriq/<%= h.id %>"><input type="hidden" name="_csrf" value="<%= csrf %>"><textarea name="body" lang="az" rows="5" placeholder="Cavabınızı buraya yazın…" required><%= h.body||'' %></textarea><button class="btn gold"><%= h.sub_status?'Yenidən göndər':'Göndər' %></button></form><% } %></article><% }) %></div>
+<%- include('../partials/foot') %>

@@ -1,0 +1,7 @@
+<%- include('../partials/head') %>
+<div class="pagehead rise"><div><h1>Helper bots</h1><p class="muted">Each bot watches one part of the institute and reports into Chronicler’s weekly report. Bots suggest; people decide.</p></div></div>
+<div class="flow rise d1"><span>WhatsApp · Web · Teachers</span>→<span>Database</span>→<span>Bots</span>→<span>Admin inbox &amp; flags</span>→<span>Chronicler weekly report → Bruce</span></div>
+<div class="grid3 rise d2"><% bots.forEach(b=>{ const f=b.key==='chronicler'?null:r.findings[b.key]; %><article class="card bot"><div class="bot-top"><span class="bi big"><%= b.icon %></span><div><h3><%= b.name %></h3><span class="pill <%= f&&f.length?'amber':'green' %>"><%= f? f.length+' finding'+(f.length===1?'':'s') : 'compiles report' %></span></div></div>
+<p><b>Watches:</b> <%= b.watches %></p><p class="small muted"><b>Flow:</b> <%= b.flow %></p>
+<% if (f) { %><ul class="small"><% f.slice(0,4).forEach(x=>{ %><li><a href="<%= x.link %>"><%= x.text %></a></li><% }) %><% if (f.length>4) { %><li class="muted">+<%= f.length-4 %> more</li><% } %></ul><% } else { %><a class="btn sm" href="/admin/report">Open sample weekly report</a><% } %></article><% }) %></div>
+<%- include('../partials/foot') %>

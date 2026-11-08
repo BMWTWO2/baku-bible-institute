@@ -1,0 +1,7 @@
+<%- include('partials/head') %>
+<section class="login rise"><div class="card"><h1>Welcome · Xoş gəlmisiniz</h1><p class="muted">Sign in to the Baku Bible Institute portal.</p>
+<% if (error) { %><p class="err"><%= error %></p><% } %>
+<form method="post" action="/login"><input type="hidden" name="_csrf" value="<%= csrf %>"><input type="hidden" name="next" value="<%= next %>">
+<label>Email<input name="email" type="email" required autocomplete="username"></label><label>Password · Şifrə<input name="password" type="password" required autocomplete="current-password"></label><button class="btn full">Sign in</button></form>
+<% if (demo) { %><p class="muted small">Demo logins are listed in DEMO_LOGINS.md.</p><% } %></div></section>
+<%- include('partials/foot') %>

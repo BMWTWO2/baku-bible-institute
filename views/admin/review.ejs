@@ -1,0 +1,11 @@
+<%- include('../partials/head') %>
+<div class="pagehead rise"><div><p class="eyebrow"><a href="/admin/homework">Homework</a> · <%= sb.code %></p><h1><%= sb.title_az %></h1><p class="muted"><%= sb.student %> · submitted <%= sb.submitted_at %> via <%= sb.source %></p></div></div>
+<div class="cols rise d1"><section class="card"><h2>Tapşırıq</h2><p class="az muted"><%= sb.instructions_az %></p><h2>Tələbənin cavabı</h2><blockquote class="az paper" lang="az"><%= sb.body %></blockquote></section>
+<section class="card"><h2>Rəy (Azerbaijani feedback)</h2>
+<form method="post" action="/admin/homework/<%= sb.id %>/draft"><input type="hidden" name="_csrf" value="<%= csrf %>"><button class="btn ghost">✍️ Draft Azeri correction</button></form>
+<% if (sb.draft_az && sb.is_sample && !sb.approved_at) { %><p class="sample">SAMPLE — generated without an AI key. A professor must edit and approve.</p><% } %>
+<form method="post" action="/admin/homework/<%= sb.id %>/approve"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<textarea name="final_az" lang="az" rows="16" class="az"><%= sb.final_az || sb.draft_az || '' %></textarea>
+<label>Points (optional, feeds gradebook)<input class="num" type="number" name="points" min="0" step="0.5" value="<%= sb.cpoints ?? '' %>"></label>
+<button class="btn gold">Approve &amp; return to student</button></form><p class="small muted">Nothing reaches the student until you approve.</p></section></div>
+<%- include('../partials/foot') %>

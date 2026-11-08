@@ -1,0 +1,23 @@
+<%- include('partials/head', { bodyClass: 'home', wide: 1 }) %>
+<section class="hero">
+  <div class="sky"></div><div class="sun"></div>
+  <svg class="skyline" viewBox="0 0 1200 260" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+    <path class="flame f1" d="M800 260 C 790 150, 830 60, 860 20 C 880 80, 900 150, 880 260 Z"/><path class="flame f2" d="M880 260 C 875 140, 905 70, 930 45 C 950 100, 965 170, 950 260 Z"/><path class="flame f3" d="M740 260 C 735 170, 760 100, 790 75 C 805 130, 815 190, 805 260 Z"/>
+    <path class="city" d="M0 260 V210 h60 v-30 h30 v40 h40 v-60 l20 -30 l20 30 v60 h50 v-20 h40 v-50 h18 v-30 h12 v30 h18 v50 h60 v-25 h80 v35 h70 v-40 h40 v60 H1200 V260 Z"/>
+    <path class="maiden" d="M1010 260 V150 q30 -30 60 0 V260 Z"/>
+  </svg>
+  <div class="waves"><span></span><span></span></div>
+  <div class="hero-copy rise"><p class="eyebrow">Bakı · Xəzər sahilində</p><h1>Baku Bible<br><em>Institute</em></h1>
+    <p class="lead">Rooted in Scripture, taught in Azerbaijani. Müqəddəs Kitabı öyrənmək, xidmətə hazırlaşmaq — Xəzərin sahilində.</p>
+    <div class="cta"><a class="btn gold" href="/login">Tələbə girişi · Student sign in</a><a class="btn ghost" href="#programs">Proqramlar</a></div></div>
+</section>
+<section id="programs" class="band wrap">
+  <div class="grid3">
+    <article class="feature rise d1"><span class="ico">📖</span><h3>Theology of Grace</h3><p>THG 101 · Lütf İlahiyyatı — Allahın lütfü və imanla xilas, Azərbaycan dilində.</p></article>
+    <article class="feature rise d2"><span class="ico">🕊️</span><h3>Practical Ecclesiology</h3><p>ECC 101 · Praktik Ekklesiologiya — yerli kilsənin həyatı və xidməti.</p></article>
+    <article class="feature rise d3"><span class="ico">✍️</span><h3>Taught by Pastor Bruce Wright</h3><p>İki fənn, bir müəllim — ev tapşırıqlarına ana dilində, müəllim tərəfindən təsdiqlənmiş rəy.</p></article>
+  </div>
+  <div class="stats rise"><div><b data-count="<%= stats.students %>">0</b><span>active students · tələbə</span></div><div><b data-count="<%= stats.courses %>">0</b><span>courses · fənn</span></div><div><b>az</b><span>taught in Azerbaijani</span></div></div>
+  <blockquote class="verse rise">“Sənin sözün ayağım üçün çıraq, yolum üçün nurdur.”<cite>Zəbur 119:105</cite></blockquote>
+</section>
+<%- include('partials/foot') %>

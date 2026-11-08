@@ -1,0 +1,4 @@
+<%- include('../partials/head') %>
+<div class="pagehead rise"><h1>Gradebook</h1></div>
+<table class="tbl rise d1"><thead><tr><th>Course</th><th>Item</th><th>Due</th><th>Max</th><th>Graded</th></tr></thead><tbody><% items.forEach(i=>{ %><tr><td><%= i.code %></td><td><a href="/admin/gradebook/<%= i.id %>"><%= i.title %></a></td><td><%= i.due_date %></td><td><%= i.max_points %></td><td><span class="pill <%= i.graded<i.n?'amber':'green' %>"><%= i.graded %>/<%= i.n %></span></td></tr><% }) %></tbody></table>
+<%- include('../partials/foot') %>

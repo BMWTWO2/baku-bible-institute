@@ -1,0 +1,3 @@
+document.querySelectorAll('[data-count]').forEach(el=>{const t=+el.dataset.count;let n=0;const s=Math.max(1,Math.ceil(t/40));const i=setInterval(()=>{n=Math.min(t,n+s);el.textContent=n;if(n>=t)clearInterval(i)},30)});
+requestAnimationFrame(()=>setTimeout(()=>document.querySelectorAll('.bar i[data-w]').forEach(i=>i.style.width=i.dataset.w+'%'),150));
+document.querySelectorAll('[data-apply]').forEach(f=>{const sel=f.querySelector('[data-act]');const sync=()=>f.querySelectorAll('[data-for]').forEach(s=>s.hidden=!s.dataset.for.split(' ').includes(sel.value));sel.addEventListener('change',sync);sync()});
