@@ -59,3 +59,6 @@ db.transaction(() => {
     db.prepare(`UPDATE whatsapp_messages SET received_at=? WHERE wa_message_id=?`).run(ts.toISOString().replace('T', ' ').slice(0, 19), 'wamid.DEMO' + Math.abs(h) + from.slice(-4)); }
 })();
 console.log('Seeded DEMO data. Password for every demo login:', PW);
+
+// Optional real accounts from BBI_EXTRA_USERS (JSON array). Missing or invalid values must not break startup.
+try { require('./seed-extra-users')(); } catch (e) { console.error('BBI_EXTRA_USERS: skipped because seeding extra users failed.'); }
