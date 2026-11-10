@@ -11,7 +11,7 @@ npm run shots       # optional Playwright screenshots → screenshots/
 Stack: Node 20+, Express 5, EJS, better-sqlite3, express-session, bcryptjs. Schema: `db/schema.sql`. Config: `.env.example`.
 
 ## Demo setup
-One teacher, **Pastor Bruce Wright** (bruce@baku-bible.example), and two classes (Payız 2026):
+One teacher, **Pastor Bruce Wright** (bruce@baku-bible.example), and two classes (Payız 2026). Set `SEED_SAMPLE_STUDENTS=false` to seed only staff and classes, with no fictional students, enrollments, grades, attendance, or homework.
 - **THG 101 Theology of Grace** · Lütf İlahiyyatı
 - **ECC 101 Practical Ecclesiology** · Praktik Ekklesiologiya
 

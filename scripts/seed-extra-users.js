@@ -1,5 +1,5 @@
 // Applied after the demo seed. Reads optional BBI_EXTRA_USERS, a JSON array of
-// {name, email, role, password_hash}. Never throws; a bad or missing value is skipped.
+// {name, email, role, password_hash, phone?}. Never throws; a bad or missing value is skipped.
 const db = require('../src/db');
 
 const ROLES = new Set(['admin', 'teacher', 'student']);
@@ -29,6 +29,7 @@ function seedExtraUsers() {
       const email = String(item.email || '').trim().toLowerCase();
       const role = String(item.role || '').trim().toLowerCase();
       const password_hash = String(item.password_hash || '').trim();
+      const phone = String(item.whatsapp_phone || item.phone || '').trim() || null;
       if (!name || !email || !password_hash || !ROLES.has(role)) {
         console.error('BBI_EXTRA_USERS: skipped one entry missing name, email, role, or password_hash.');
         continue;
@@ -39,8 +40,8 @@ function seedExtraUsers() {
         .run(email, password_hash, role, name).lastInsertRowid;
       if (role === 'student') {
         const sid = db.prepare(
-          `INSERT INTO students (user_id, name, email, status, is_demo) VALUES (?,?,?,'active',0)`
-        ).run(uid, name, email).lastInsertRowid;
+          `INSERT INTO students (user_id, name, email, whatsapp_phone, status, is_demo) VALUES (?,?,?,?,'active',0)`
+        ).run(uid, name, email, phone).lastInsertRowid;
         const sections = db.prepare(`
           SELECT sec.id FROM sections sec
           JOIN courses c ON c.id = sec.course_id
