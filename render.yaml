@@ -23,6 +23,6 @@ services:
       - key: SESSION_SECRET
         generateValue: true
       - key: DEMO_MODE
-        value: "true"
+        value: "false"
       - key: SEED_SAMPLE_STUDENTS
         value: "false"

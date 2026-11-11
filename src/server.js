@@ -3,7 +3,7 @@ const express = require('express'); const session = require('express-session'); 
 const db = require('./db'); const wa = require('./whatsapp'); const bots = require('./bots'); const { draftCorrection } = require('./azeri');
 
 const app = express(); const PORT = Number(process.env.PORT || 3050);
-const DEMO = process.env.DEMO_MODE !== 'false';
+const DEMO = process.env.DEMO_MODE != null ? process.env.DEMO_MODE !== 'false' : process.env.NODE_ENV !== 'production';
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || '';
 const APP_SECRET = process.env.WHATSAPP_APP_SECRET || '';
 app.set('view engine', 'ejs'); app.set('views', path.join(__dirname, '..', 'views')); app.set('trust proxy', 1);
