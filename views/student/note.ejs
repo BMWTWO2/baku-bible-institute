@@ -1,0 +1,6 @@
+<%- include('../partials/head', { lang: 'az' }) %>
+<div class="pagehead rise"><div><p class="eyebrow"><a href="/telebe/xulaseler">← Dərs xülasələri</a></p><h1><%= n.title %></h1><% if (n.title_az) { %><p class="az"><%= n.title_az %></p><% } %>
+<p class="muted small"><%= n.date %><% if (n.course) { %> · <%= n.course %><% } %><% if (n.source) { %> · <%= n.source %><% } %></p></div></div>
+<article class="card note-body rise d1" lang="en"><%- n.html %></article>
+<p class="rise d2"><a href="/telebe/xulaseler">← Bütün xülasələr</a></p>
+<%- include('../partials/foot') %>

@@ -1,6 +1,6 @@
 const path = require('path'); const crypto = require('crypto');
 const express = require('express'); const session = require('express-session'); const bcrypt = require('bcryptjs');
-const db = require('./db'); const wa = require('./whatsapp'); const bots = require('./bots'); const { draftCorrection } = require('./azeri');
+const db = require('./db'); const wa = require('./whatsapp'); const bots = require('./bots'); const { draftCorrection } = require('./azeri'); const notes = require('./notes');
 
 const app = express(); const PORT = Number(process.env.PORT || 3050);
 const DEMO = process.env.DEMO_MODE != null ? process.env.DEMO_MODE !== 'false' : process.env.NODE_ENV !== 'production';
@@ -175,6 +175,13 @@ app.post('/telebe/tapsiriq/:id', S, (req, res) => { const s = me(req); const bod
   if (!ok || !body) { flash(req, 'Mətn boşdur və ya tapşırıq tapılmadı.'); return res.redirect('/telebe'); }
   db.prepare(`INSERT INTO submissions (assignment_id, student_id, body) VALUES (?,?,?) ON CONFLICT(assignment_id, student_id) DO UPDATE SET body=excluded.body, status='submitted', submitted_at=CURRENT_TIMESTAMP`).run(req.params.id, s.id, body);
   flash(req, 'Tapşırıq göndərildi! Müəllim yoxlayandan sonra rəyi burada görəcəksiniz.'); res.redirect('/telebe'); });
+
+// Class notes / Dərs xülasələri (content files, any signed-in user)
+const N = need('student', 'teacher', 'admin');
+app.get('/telebe/xulaseler', N, (req, res) => res.render('student/notes', { title: 'Dərs xülasələri', notes: notes.all(), lang: 'az' }));
+app.get('/telebe/xulaseler/:slug', N, (req, res) => { const n = notes.get(req.params.slug);
+  if (!n) return res.status(404).render('error', { title: 'Tapılmadı', msg: 'Bu xülasə tapılmadı.' });
+  res.render('student/note', { title: n.title, n, lang: 'az' }); });
 
 app.use((req, res) => res.status(404).render('error', { title: 'Not found', msg: 'Page not found.' }));
 app.use((err, req, res, _n) => { console.error(err); res.status(500).render('error', { title: 'Error', msg: 'Something went wrong.' }); });

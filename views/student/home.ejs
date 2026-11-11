@@ -5,6 +5,7 @@
 <% if (c('absent')>2) { %><p class="note">Diqqət: 2-dən çox üzrsüz qayıbınız var. Zəhmət olmasa müəlliminizlə əlaqə saxlayın.</p><% } %>
 <div class="cols rise d2"><section class="card"><h2>Dərslərim</h2><ul><% classes.forEach(x=>{ %><li><b><%= x.code %></b> — <%= x.title_az %><br><span class="small muted"><%= x.teacher %> · <%= x.schedule %> · <%= x.room %></span></li><% }) %></ul></section>
 <section class="card"><h2>Qiymətlərim</h2><ul><% grades.forEach(g=>{ %><li><%= g.code %> · <%= g.title %>: <b><%= g.points %></b> / <%= g.max_points %></li><% }) %></ul></section></div>
+<a class="card notes-link rise d2" href="/telebe/xulaseler"><p class="eyebrow">Dərs xülasələri</p><h3>Dərslərin qısa xülasələri</h3><p class="muted">Hər dərsdən sonra dərsin qısa xülasəsini burada oxuya bilərsiniz. →</p></a>
 <h2 class="rise">Ev tapşırıqları</h2>
 <div class="list rise d3"><% hw.forEach(h=>{ %><article class="card"><p class="eyebrow"><%= h.code %> · Son tarix: <%= h.due_date %></p><h3><%= h.title_az %></h3><p class="muted"><%= h.instructions_az %></p>
 <% if (h.sub_status==='returned') { %><p class="small"><b>Göndərdiyiniz cavab:</b> <%= h.body %></p><div class="feedback"><b>Müəllimin rəyi<% if (h.points!=null) { %> · <%= h.points %> bal<% } %></b><p><%= h.final_az %></p></div>

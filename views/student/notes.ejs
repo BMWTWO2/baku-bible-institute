@@ -1,0 +1,7 @@
+<%- include('../partials/head', { lang: 'az' }) %>
+<div class="pagehead rise"><div><p class="eyebrow"><% if (user.role==='student') { %><a href="/telebe">Tələbə kabineti</a><% } else { %>Class notes<% } %></p><h1>Dərs xülasələri</h1><p class="muted">Hər dərsdən sonra dərsin qısa xülasəsini burada oxuya bilərsiniz.</p></div></div>
+<% if (!notes.length) { %><p class="muted rise d1">Hələ xülasə yoxdur. Tezliklə burada olacaq.</p><% } %>
+<div class="list rise d1"><% notes.forEach(n=>{ %><article class="card note-card"><p class="eyebrow"><%= n.date %><% if (n.course) { %> · <%= n.course %><% } %></p>
+<h3><a href="/telebe/xulaseler/<%= n.slug %>"><%= n.title %></a></h3><% if (n.title_az) { %><p class="az"><%= n.title_az %></p><% } %>
+<p class="muted small"><%= n.excerpt %>…</p><a class="btn sm" href="/telebe/xulaseler/<%= n.slug %>">Oxu →</a></article><% }) %></div>
+<%- include('../partials/foot') %>
