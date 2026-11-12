@@ -47,3 +47,10 @@ The group analyzed the failures of the Corinthian church — specifically their 
 ### The "Spiritual Limp" (Romans 15:1)
 
 The Pastor introduced the concept of the "spiritual limp." Just as a body does not amputate a sprained ankle but supports it until it heals, the strong in the church are obligated to bear the infirmities of the weak. Body Life is found in looking for those who are struggling and ministering to them, rather than seeking personal gain.
+
+## Upcoming Schedule
+
+All times are Baku time (Bakı vaxtı, UTC+4).
+
+- **Nov 17, 6:45 PM (Baku time / Bakı vaxtı):** Technical Pre-Check: Pastor logs on early for Q&A
+- **Nov 17, 7:00 PM (Baku time / Bakı vaxtı):** Session Start: Continuation of Body Life
