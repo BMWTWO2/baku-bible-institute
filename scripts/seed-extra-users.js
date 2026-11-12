@@ -45,7 +45,7 @@ function seedExtraUsers() {
         const sections = db.prepare(`
           SELECT sec.id FROM sections sec
           JOIN courses c ON c.id = sec.course_id
-          WHERE c.title IN ('Theology of Grace', 'Practical Ecclesiology')
+          WHERE c.code IN ('THG 101', 'ECC 101')
         `).all();
         const enroll = db.prepare('INSERT OR IGNORE INTO enrollments (student_id, section_id) VALUES (?,?)');
         for (const sec of sections) enroll.run(sid, sec.id);

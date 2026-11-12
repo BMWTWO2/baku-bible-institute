@@ -1,6 +1,7 @@
 ---
 title: Romans 5 Grace Bible Teaching
 title_az: Romalılara 5 — lütf haqqında dərs
+course: THG 101
 date: 2026-11-10
 source: Pocket recording summary
 ---

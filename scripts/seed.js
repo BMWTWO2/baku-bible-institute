@@ -11,7 +11,7 @@ db.transaction(() => {
   user('admin@baku-bible.example', 'admin', 'Bruce (Admin, demo)');
   const T = [['Pastor Bruce Wright', 'bruce@baku-bible.example', '+994501110001']]
     .map(([n, e, p]) => db.prepare('INSERT INTO teachers (user_id, name, email, whatsapp_phone) VALUES (?,?,?,?)').run(user(e, 'teacher', n), n, e, p).lastInsertRowid);
-  const C = [['THG 101', 'Theology of Grace', 'Lütf İlahiyyatı'], ['ECC 101', 'Practical Ecclesiology', 'Praktik Ekklesiologiya']]
+  const C = [['THG 101', 'Theology of Grace', 'Lütf İlahiyyatı'], ['ECC 101', 'Body Life', 'Body Life']]
     .map(([c, t, a]) => db.prepare('INSERT INTO courses (code, title, title_az) VALUES (?,?,?)').run(c, t, a).lastInsertRowid);
   const SEC = [[C[0], T[0], 'Bazar ertəsi 18:30', 'Xəzər zalı', 12], [C[1], T[0], 'Cümə axşamı 19:00', 'Qala otağı', 14]]
     .map(([c, t, s, r, cap]) => db.prepare(`INSERT INTO sections (course_id, teacher_id, term, schedule, room, capacity) VALUES (?,?, 'Payız 2026', ?,?,?)`).run(c, t, s, r, cap).lastInsertRowid);
@@ -53,7 +53,7 @@ db.transaction(() => {
       [-30, '+994507778899', 'Samir Əhmədov', 'Salam, yeni tələbə kimi qeydiyyatdan keçmək istəyirəm. Payız semestrinə yer var?'],
       [-20, '+994552002742', 'Günay', 'Ev tapşırığım: Həvarilərin İşləri 2-də ilk kilsə təlimə, şərikliyə, çörək kəsməyə və duaya bağlı idi. Bizim icmada da həftəlik ev qrupları bunu yaşadır.'],
       [-6, '+994501110001', 'Pastor Bruce', 'THG 101 Midterm qiymət: Murad 88 bal'],
-      [-3, '+15551230000', 'Daniel (US)', 'Hi! I am a missionary in Baku and would like to register for the Practical Ecclesiology class. Is it taught in English too?'],
+      [-3, '+15551230000', 'Daniel (US)', 'Hi! I am a missionary in Baku and would like to register for the Body Life class. Is it taught in English too?'],
       [-1, '+994552006855', 'Orxan', 'Running 15 minutes late to ECC 101 today, traffic on Neftçilər.'],
     ];
     for (const [h, from, name, text] of msgs) { const ts = new Date(Date.now() + h * 3600e3);
