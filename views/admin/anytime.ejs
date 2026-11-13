@@ -1,0 +1,32 @@
+<%- include('../partials/head') %>
+<% const HL={submitted:['Needs translation + draft','amber'],drafted:['Ready for your edit','blue'],approved_by_bruce:['Approved · awaiting Azeri translation','violet'],returned:['Returned to student','green']}; const locked = s.status==='returned'; %>
+<div class="pagehead rise"><div><p class="eyebrow"><a href="/admin/homework">Homework</a> · <%= s.course_code %> · anytime</p><h1><%= s.title %></h1>
+<p class="muted"><%= s.student_name %> · submitted <%= late.fmtBaku(s.submitted_at) %> Baku · language: <%= s.lang %> · <span class="pill <%= HL[s.status][1] %>"><%= HL[s.status][0] %></span></p></div></div>
+<div class="cols rise d1">
+<section class="card"><h2>Student's homework<% if (s.lang==='az') { %> (Azeri)<% } %></h2><blockquote class="az paper" lang="<%= s.lang %>"><%= s.body %></blockquote>
+<% if (s.lang!=='en') { %><h2>English translation</h2><% if (s.translation_en) { %><blockquote class="paper" lang="en"><%= s.translation_en %></blockquote><% } else { %><p class="muted">Not translated yet. <%= builtInAi ? '' : 'The scheduled assistant will add it.' %></p><% } %><% } %>
+<% if (s.status==='returned') { %><h2>Returned to student (Azeri)</h2><div class="feedback" lang="az"><%= s.return_az %></div><p class="small muted">Returned <%= s.returned_at %> · translated by <%= s.returned_by %></p><% } %>
+</section>
+<section class="card"><h2>Your correction (English)</h2>
+<% if (s.draft_en && !s.approved_at) { %><p class="sample">DRAFT by <%= s.drafted_by %> — please edit it into your own words before approving.</p><% } %>
+<% if (!s.draft_en && s.status==='submitted') { %><p class="muted small">No draft yet. You can wait for the draft or write your own correction below.</p><% } %>
+<% if (s.status==='approved_by_bruce') { %><p class="note">Approved by <%= s.approved_by %> at <%= s.approved_at %>. Waiting for the Azeri translation; then the student will see it. You can still edit and re-approve, or withdraw approval.</p><% } %>
+<form method="post" action="/admin/homework/anytime/<%= s.id %>/approve"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<textarea name="final_en" lang="en" rows="16" <%= locked?'readonly':'' %>><%= s.final_en || s.draft_en || '' %></textarea>
+<% const ded = s.max_points!=null && s.raw_score!=null ? late.applyDeduction(s.raw_score, s.max_points, s.deduction_pct) : null; %>
+<div class="card" style="margin:10px 0;padding:12px"><h3>Grade<% if (s.max_points!=null) { %> (out of <%= s.max_points %>)<% } %></h3>
+<% if (s.due_at) { %><p class="small">Due <b><%= late.fmtBaku(s.due_at) %></b> Baku · submitted <b><%= late.fmtBaku(s.submitted_at) %></b> Baku ·
+<% if (s.minutes_late) { %><span class="pill red"><%= late.lateText(s.minutes_late) %> (<%= s.minutes_late %> min) → −<%= s.deduction_pct %>% of max = −<%= late.round1(s.deduction_pct/100*s.max_points) %> pts</span><% } else { %><span class="pill green">On time</span><% } %></p>
+<p class="small muted">Policy: <%= s.late_policy %></p><% } else { %><p class="small muted">Free homework (no assignment / no due date) — no late deduction<%= s.max_points==null ? '; score optional' : '' %>.</p><% } %>
+<div class="row"><label>Raw score<input class="num" type="number" name="raw_score" min="0" <%= s.max_points!=null ? 'max='+s.max_points : '' %> step="0.5" value="<%= s.raw_score ?? '' %>" <%= locked?'readonly':'' %>></label>
+<label>Final score override (optional)<input class="num" type="number" name="final_override" min="0" step="0.5" value="<%= s.score_overridden ? s.final_score : '' %>" <%= locked?'readonly':'' %>></label></div>
+<% if (s.final_score!=null) { %><p class="small">Saved: raw <b><%= s.raw_score ?? '—' %></b> − deduction <b><%= s.deduction_points ?? 0 %></b> = final <b><%= s.final_score %></b><%= s.max_points!=null ? ' / '+s.max_points : '' %><%= s.score_overridden ? ' (your override)' : '' %></p><% } %>
+<p class="small muted">The final score = raw − late deduction, unless you override it. It goes to the gradebook only when the Azeri feedback is returned.</p></div>
+<% if (!locked) { %><label class="row"><input type="checkbox" name="reviewed" value="yes" style="width:auto"> I have reviewed and edited this correction, and it is ready to be translated into Azeri and returned to the student.</label>
+<div class="row"><button class="btn gold">Approve my correction</button>
+<button class="btn ghost" formaction="/admin/homework/anytime/<%= s.id %>/save">Save edits only</button></div><% } %></form>
+<% if (s.status==='approved_by_bruce') { %><form method="post" action="/admin/homework/anytime/<%= s.id %>/unapprove"><input type="hidden" name="_csrf" value="<%= csrf %>"><button class="link">Withdraw approval</button></form><% } %>
+<p class="small muted">Nothing reaches the student until you approve. After approval, the Azeri translation is added and the student sees it in their kabinet. No email is sent.</p>
+<% if (user.role==='admin') { %><form method="post" action="/admin/homework/anytime/<%= s.id %>/delete" class="inline"><input type="hidden" name="_csrf" value="<%= csrf %>"><button class="link small">Delete this submission</button></form><% } %>
+</section></div>
+<%- include('../partials/foot') %>

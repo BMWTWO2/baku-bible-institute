@@ -15,3 +15,13 @@ CREATE TABLE IF NOT EXISTS corrections (id INTEGER PRIMARY KEY, submission_id IN
 CREATE TABLE IF NOT EXISTS whatsapp_messages (id INTEGER PRIMARY KEY, wa_message_id TEXT UNIQUE, from_number TEXT NOT NULL, contact_name TEXT, body TEXT, received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, raw_json TEXT, student_id INTEGER REFERENCES students(id) ON DELETE SET NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','applied','dismissed')), suggested_action TEXT, suggested_payload TEXT, handled_by INTEGER REFERENCES users(id), handled_at TEXT, is_demo INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS bot_runs (id INTEGER PRIMARY KEY, bot TEXT NOT NULL, ran_at TEXT DEFAULT CURRENT_TIMESTAMP, findings_json TEXT);
 CREATE TABLE IF NOT EXISTS audit_log (id INTEGER PRIMARY KEY, user_id INTEGER, action TEXT, detail TEXT, at TEXT DEFAULT CURRENT_TIMESTAMP);
+-- Homework can be submitted ANY time (never blocked); late work against an assignment's due time gets a progressive deduction (src/late.js). Flow: submitted -> drafted (English translation + English correction draft)
+-- -> approved_by_bruce (Bruce's edited English final) -> returned (Azeri version visible to the student).
+CREATE TABLE IF NOT EXISTS hw_submissions (id INTEGER PRIMARY KEY, assignment_id INTEGER REFERENCES assignments(id) ON DELETE SET NULL, student_id INTEGER REFERENCES students(id) ON DELETE SET NULL, student_email TEXT, student_name TEXT NOT NULL, course_code TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, lang TEXT,
+  status TEXT NOT NULL DEFAULT 'submitted' CHECK(status IN ('submitted','drafted','approved_by_bruce','returned')),
+  due_at TEXT, max_points REAL, late_policy TEXT, minutes_late INTEGER NOT NULL DEFAULT 0, deduction_pct REAL NOT NULL DEFAULT 0,
+  raw_score REAL, deduction_points REAL, final_score REAL, score_overridden INTEGER NOT NULL DEFAULT 0,
+  translation_en TEXT, draft_en TEXT, drafted_by TEXT, drafted_at TEXT, final_en TEXT, approved_by TEXT, approved_at TEXT, return_az TEXT, returned_by TEXT, returned_at TEXT,
+  submitted_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE INDEX IF NOT EXISTS hw_submissions_status ON hw_submissions(status);
+CREATE INDEX IF NOT EXISTS hw_submissions_email ON hw_submissions(student_email);

@@ -1,0 +1,26 @@
+<%- include('../partials/head') %>
+<div class="pagehead rise"><div><p class="eyebrow">All times are Baku time (Asia/Baku, UTC+4)</p><h1>Assignments</h1>
+<p class="muted">Students can submit any time — late work is never blocked. Late work loses a percentage of the max points by how late it is. Policy format: <code>hours:percent</code>, e.g. <code><%= late.DEFAULT_POLICY %></code> = up to 24h −5%, up to 3 days −10%, up to 7 days −20%, after that −30%. You can still override the final number when you grade.</p></div></div>
+<section class="card rise d1"><h2>New assignment</h2>
+<form method="post" action="/admin/assignments" class="formgrid"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<label>Class<select name="section_id" required><% sections.forEach(x=>{ %><option value="<%= x.id %>"><%= x.code %> — <%= x.title %></option><% }) %></select></label>
+<label>Title (Azeri, students see this)<input name="title_az" required maxlength="200"></label>
+<label>Due date (Baku)<input type="date" name="due_date" required></label>
+<label>Due time (Baku)<input type="time" name="due_time" value="23:59" required></label>
+<label>Max points<input class="num" type="number" name="max_points" min="1" step="0.5" value="100" required></label>
+<label>Late policy<input name="late_policy" value="<%= late.DEFAULT_POLICY %>"></label>
+<label class="span">Instructions (Azeri)<textarea name="instructions_az" lang="az" rows="3"></textarea></label>
+<div class="span"><button class="btn gold">Create assignment</button></div></form></section>
+<h2 class="rise d2">Existing</h2>
+<% if (!list.length) { %><p class="muted">No assignments yet.</p><% } %>
+<div class="list rise d2"><% list.forEach(a=>{ const p=late.bakuParts(a.due_at); %><article class="card"><p class="eyebrow"><%= a.code %> · due <%= a.due_at ? late.fmtBaku(a.due_at) + ' Baku' : (a.due_date || 'no due date') %> · <%= a.max_points ?? a.gi_max ?? '—' %> pts · <%= a.nsub %> submission(s)</p>
+<details><summary><b><%= a.title_az %></b> — edit</summary>
+<form method="post" action="/admin/assignments/<%= a.id %>" class="formgrid"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<label>Title<input name="title_az" value="<%= a.title_az %>" required></label>
+<label>Due date (Baku)<input type="date" name="due_date" value="<%= p.date || a.due_date || '' %>" required></label>
+<label>Due time (Baku)<input type="time" name="due_time" value="<%= p.time || '23:59' %>" required></label>
+<label>Max points<input class="num" type="number" name="max_points" min="1" step="0.5" value="<%= a.max_points ?? a.gi_max ?? 100 %>" required></label>
+<label>Late policy<input name="late_policy" value="<%= a.late_policy || late.DEFAULT_POLICY %>"></label>
+<label class="span">Instructions<textarea name="instructions_az" lang="az" rows="3"><%= a.instructions_az || '' %></textarea></label>
+<div class="span"><button class="btn">Save</button> <span class="small muted">Changing the due time or policy re-times submissions you haven't approved yet.</span></div></form></details></article><% }) %></div>
+<%- include('../partials/foot') %>

@@ -1,5 +1,12 @@
 <%- include('../partials/head') %>
 <div class="pagehead rise"><h1>Homework review · Ev tapşırıqları</h1></div>
+<% const HL={submitted:['Needs translation + draft','amber'],drafted:['Ready for your edit','blue'],approved_by_bruce:['Approved · awaiting Azeri','violet'],returned:['Returned','green']}; %>
+<section class="rise d1"><h2>Anytime homework (no deadlines)</h2>
+<p class="muted small">Students submit whenever they like. An English translation and an English correction draft are prepared<%= builtInAi ? ' automatically (AI key set)' : ' by the scheduled assistant' %>. Nothing reaches the student until you edit and approve; then it is translated into Azeri and returned.</p>
+<% if (!anytime.length) { %><p class="muted">No anytime homework yet.</p><% } %>
+<div class="list"><% anytime.forEach(s=>{ %><a class="card hw" href="/admin/homework/anytime/<%= s.id %>"><div><p class="eyebrow"><%= s.course_code %> · <%= s.submitted_at %></p><h3><%= s.title %></h3><p class="muted"><%= s.student_name %></p></div><p class="az clamp"><%= s.body %></p>
+<span class="pill <%= HL[s.status][1] %>"><%= HL[s.status][0] %></span></a><% }) %></div></section>
+<h2 class="rise d1">Assignment homework</h2>
 <div class="list rise d1"><% subs.forEach(s=>{ %><a class="card hw" href="/admin/homework/<%= s.id %>"><div><p class="eyebrow"><%= s.code %> · <%= s.source %></p><h3><%= s.title_az %></h3><p class="muted"><%= s.student %></p></div><p class="az clamp"><%= s.body %></p>
 <span class="pill <%= s.status==='returned'?'green':s.status==='draft_ready'?'blue':'amber' %>"><%= {submitted:'Needs draft',draft_ready:'Draft ready',returned:'Returned'}[s.status] %></span></a><% }) %></div>
 <%- include('../partials/foot') %>

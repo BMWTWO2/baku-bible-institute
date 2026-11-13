@@ -4,3 +4,7 @@ data/
 .joseph_password
 .joseph_email.txt
 .bbi_extra_users.json
+.joseph_body.txt
+.bbi_api_token
+.bbi_test_*
+*.persist-ok

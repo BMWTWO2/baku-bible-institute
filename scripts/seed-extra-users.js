@@ -5,17 +5,22 @@ const db = require('../src/db');
 const ROLES = new Set(['admin', 'teacher', 'student']);
 
 function seedExtraUsers() {
-  const raw = process.env.BBI_EXTRA_USERS;
+  // BBI_TEST_USERS (same format) is for short-lived, clearly-labeled test accounts; clear it to remove them.
+  for (const key of ['BBI_EXTRA_USERS', 'BBI_TEST_USERS']) seedFrom(key);
+}
+
+function seedFrom(key) {
+  const raw = process.env[key];
   if (raw == null || !String(raw).trim()) return;
   let list;
   try {
     list = JSON.parse(raw);
   } catch {
-    console.error('BBI_EXTRA_USERS is not valid JSON; skipping extra users.');
+    console.error(key + ' is not valid JSON; skipping extra users.');
     return;
   }
   if (!Array.isArray(list)) {
-    console.error('BBI_EXTRA_USERS must be a JSON array; skipping extra users.');
+    console.error(key + ' must be a JSON array; skipping extra users.');
     return;
   }
   let added = 0;
@@ -57,7 +62,7 @@ function seedExtraUsers() {
       console.error('BBI_EXTRA_USERS: failed to add one entry; continuing.');
     }
   }
-  if (added) console.log('BBI_EXTRA_USERS: added ' + added + ' user(s).');
+  if (added) console.log(key + ': added ' + added + ' user(s).');
 }
 
 module.exports = seedExtraUsers;

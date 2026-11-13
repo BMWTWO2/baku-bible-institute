@@ -4,13 +4,20 @@
   "private": true,
   "description": "Baku Bible Institute — students, attendance, grades, Azeri homework, WhatsApp intake, helper bots",
   "main": "src/server.js",
-  "scripts": { "start": "node src/server.js", "seed": "node scripts/seed.js", "shots": "node scripts/screenshots.mjs" },
-  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.js",
+    "seed": "node scripts/seed.js",
+    "shots": "node scripts/screenshots.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^12.4.1",
     "ejs": "^3.1.10",
     "express": "^5.1.0",
-    "express-session": "^1.18.1"
+    "express-session": "^1.18.1",
+    "pg": "^8.23.1"
   }
 }

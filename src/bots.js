@@ -30,7 +30,9 @@ const BOTS = [
     run() { return unexcused().filter(r => r.n > 2).map(r => ({ text: `${r.name}: ${r.n} unexcused absences in ${r.code}`, link: `/admin/students/${r.id}` })); } },
   { key: 'helper', name: 'Homework Helper', icon: '✍️', watches: 'Homework submissions awaiting review; drafts Azerbaijani corrections for a professor to approve.', flow: 'Student submission (web/WhatsApp) → Helper draft (az) → Professor approves → Student sees feedback',
     run() { return db.prepare(`SELECT sb.id, s.name, a.title_az, sb.status FROM submissions sb JOIN students s ON s.id=sb.student_id JOIN assignments a ON a.id=sb.assignment_id WHERE sb.status<>'returned' ORDER BY sb.submitted_at`).all()
-        .map(r => ({ text: `${r.name} — «${r.title_az}» (${r.status === 'draft_ready' ? 'draft ready' : 'needs draft'})`, link: `/admin/homework/${r.id}` })); } },
+        .map(r => ({ text: `${r.name} — «${r.title_az}» (${r.status === 'draft_ready' ? 'draft ready' : 'needs draft'})`, link: `/admin/homework/${r.id}` }))
+      .concat(db.prepare(`SELECT id, student_name, title, status FROM hw_submissions WHERE status<>'returned' ORDER BY submitted_at`).all()
+        .map(r => ({ text: `${r.student_name} — «${r.title}» (${{ submitted: 'waiting for translation + draft', drafted: 'ready for Bruce to edit and approve', approved_by_bruce: 'approved, waiting for Azeri translation' }[r.status]})`, link: `/admin/homework/anytime/${r.id}` }))); } },
 ];
 BOTS.push({ key: 'chronicler', name: 'Chronicler', icon: '📖', watches: 'Compiles every bot’s findings into the weekly director’s report.', flow: 'All bots → Chronicler → Weekly report (Bruce)', run: () => [] });
 function runAll() { const res = {}; for (const b of BOTS) if (b.key !== 'chronicler') res[b.key] = b.run(); return res; }
@@ -38,7 +40,7 @@ function weeklyReport() {
   const f = runAll(); const c = q => db.prepare(q).get().n;
   return { generated: new Date().toISOString(), findings: f,
     totals: { students: c(`SELECT COUNT(*) n FROM students WHERE status='active'`), applicants: c(`SELECT COUNT(*) n FROM students WHERE status='applicant'`), sections: c('SELECT COUNT(*) n FROM sections'),
-      pendingWhatsApp: c(`SELECT COUNT(*) n FROM whatsapp_messages WHERE status='pending'`), homeworkAwaiting: c(`SELECT COUNT(*) n FROM submissions WHERE status<>'returned'`),
+      pendingWhatsApp: c(`SELECT COUNT(*) n FROM whatsapp_messages WHERE status='pending'`), homeworkAwaiting: c(`SELECT COUNT(*) n FROM submissions WHERE status<>'returned'`) + c(`SELECT COUNT(*) n FROM hw_submissions WHERE status<>'returned'`),
       attendanceRate: db.prepare(`SELECT ROUND(100.0*SUM(status IN ('present','late','excused'))/NULLIF(COUNT(*),0)) n FROM attendance`).get().n } };
 }
 module.exports = { BOTS, runAll, weeklyReport, unexcused };

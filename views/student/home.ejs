@@ -6,8 +6,22 @@
 <div class="cols rise d2"><section class="card"><h2>Dərslərim</h2><ul><% classes.forEach(x=>{ %><li><b><%= x.code %></b> — <%= x.title_az %><br><span class="small muted"><%= x.teacher %> · <%= x.schedule %> · <%= x.room %></span></li><% }) %></ul></section>
 <section class="card"><h2>Qiymətlərim</h2><ul><% grades.forEach(g=>{ %><li><%= g.code %> · <%= g.title %>: <b><%= g.points %></b> / <%= g.max_points %></li><% }) %></ul></section></div>
 <a class="card notes-link rise d2" href="/telebe/xulaseler"><p class="eyebrow">Dərs xülasələri</p><h3>Dərslərin qısa xülasələri</h3><p class="muted">Hər dərsdən sonra dərsin qısa xülasəsini burada oxuya bilərsiniz. →</p></a>
-<h2 class="rise">Ev tapşırıqları</h2>
-<div class="list rise d3"><% hw.forEach(h=>{ %><article class="card"><p class="eyebrow"><%= h.code %> · Son tarix: <%= h.due_date %></p><h3><%= h.title_az %></h3><p class="muted"><%= h.instructions_az %></p>
-<% if (h.sub_status==='returned') { %><p class="small"><b>Göndərdiyiniz cavab:</b> <%= h.body %></p><div class="feedback"><b>Müəllimin rəyi<% if (h.points!=null) { %> · <%= h.points %> bal<% } %></b><p><%= h.final_az %></p></div>
-<% } else { %><% if (h.sub_status) { %><p class="pill blue">Göndərilib — müəllim yoxlayır</p><% } %><form method="post" action="/telebe/tapsiriq/<%= h.id %>"><input type="hidden" name="_csrf" value="<%= csrf %>"><textarea name="body" lang="az" rows="5" placeholder="Cavabınızı buraya yazın…" required><%= h.body||'' %></textarea><button class="btn gold"><%= h.sub_status?'Yenidən göndər':'Göndər' %></button></form><% } %></article><% }) %></div>
+<h2 class="rise" id="tapsiriqlarim">Tapşırıqlarım</h2>
+<p class="muted small rise">Bütün vaxtlar Bakı vaxtı ilədir. Tapşırığı istənilən vaxt göndərə bilərsiniz. Son tarixdən sonra göndərilsə, gecikməyə görə baldan bir az çıxılır (nə qədər gec, o qədər çox).</p>
+<div class="list rise d2"><% hw.forEach(a=>{ const past = a.due_at && a.due_at < nowIso; %><article class="card"><p class="eyebrow"><%= a.code %> · Son tarix: <%= a.due_at ? late.fmtBaku(a.due_at) + ' (Bakı vaxtı)' : (a.due_date || '—') %><% if (a.max_points) { %> · <%= a.max_points %> bal<% } %></p><h3><%= a.title_az %></h3><% if (a.instructions_az) { %><p class="muted"><%= a.instructions_az %></p><% } %>
+<% if (past) { %><p class="pill amber">Son tarix keçib — yenə göndərə bilərsiniz, amma gecikməyə görə baldan çıxılacaq.</p><% } %><% if (a.nmine) { %><p class="pill blue">Göndərmisiniz (<%= a.nmine %>)</p><% } %>
+<form method="post" action="/telebe/tapsiriq/<%= a.id %>"><input type="hidden" name="_csrf" value="<%= csrf %>"><textarea name="body" lang="az" rows="5" placeholder="Cavabınızı buraya yazın…" required></textarea><button class="btn gold"><%= a.nmine ? 'Yenidən göndər' : 'Göndər' %></button></form></article><% }) %></div>
+<section class="card rise d2"><h3>Sərbəst tapşırıq göndər</h3><p class="muted small">Konkret tapşırığa aid olmayan işi (məsələn, əlavə esse) buradan göndərin. Azərbaycan dilində yaza bilərsiniz.</p>
+<form method="post" action="/telebe/tapsiriq" class="formgrid"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<label>Dərs<select name="course_code" required><% courses.forEach(c=>{ %><option value="<%= c.code %>"><%= c.code %> — <%= c.title_az || c.title %></option><% }) %></select></label>
+<label>Başlıq<input name="title" maxlength="200" required placeholder="Məsələn: Romalılara 5 haqqında"></label>
+<label class="span">Mətn<textarea name="body" lang="az" rows="7" required placeholder="Cavabınızı buraya yazın…"></textarea></label>
+<div class="span"><button class="btn gold">Göndər</button></div></form></section>
+<% const SL={submitted:['Göndərildi — müəllim yoxlayır','blue'],drafted:['Göndərildi — müəllim yoxlayır','blue'],approved_by_bruce:['Müəllim yoxladı — rəy hazırlanır','violet'],returned:['Müəllimin rəyi hazırdır','green']}; %>
+<div class="list rise d3"><% if (!mine.length) { %><p class="muted">Hələ tapşırıq göndərməmisiniz.</p><% } %><% mine.forEach(m=>{ %><article class="card"><p class="eyebrow"><%= m.course_code %> · <%= late.fmtBaku(m.submitted_at) %> (Bakı vaxtı)</p><h3><%= m.title %></h3>
+<span class="pill <%= SL[m.status][1] %>"><%= SL[m.status][0] %></span>
+<details><summary class="small">Göndərdiyiniz mətn</summary><p class="small" style="white-space:pre-wrap"><%= m.body %></p></details>
+<% if (m.due_at) { %><p class="small muted">Göndərilib: <%= late.fmtBaku(m.submitted_at) %> · <%= late.lateText(m.minutes_late,'az') %><% if (m.minutes_late) { %> (−<%= m.deduction_pct %>%)<% } %></p><% } %>
+<% if (m.status==='returned') { %><div class="feedback" lang="az"><b>Müəllimin rəyi</b><p><%= m.return_az %></p>
+<% if (m.final_score!=null) { %><p><b>Bal: <%= m.final_score %><%= m.max_points!=null ? ' / ' + m.max_points : '' %></b><% if (m.minutes_late && m.deduction_points && !m.score_overridden) { %> <span class="small">(<%= m.raw_score %> bal − gecikməyə görə <%= m.deduction_points %> bal, <%= m.deduction_pct %>%)</span><% } %></p><% } %></div><% } %></article><% }) %></div>
 <%- include('../partials/foot') %>

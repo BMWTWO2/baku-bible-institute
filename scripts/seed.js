@@ -1,6 +1,21 @@
 // Seeds FICTIONAL DEMO data. Run: npm run seed   (wipes the SQLite DB first)
+// With DATABASE_URL set (durable mode, see src/persist.js) it first restores the newest saved
+// snapshot of the real database and, if one exists, skips the wipe and the demo seed entirely.
 const fs = require('fs'); const path = require('path');
 const dbFile = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bbi.sqlite');
+const persist = require('../src/persist');
+async function main() {
+fs.rmSync(dbFile + '.persist-ok', { force: true });
+if (persist.enabled()) {
+  const r = await persist.restore(); // throws when Postgres is unreachable: never boot a blank DB in durable mode
+  if (r === 'restored') {
+    const db = require('../src/db');
+    try { require('./seed-extra-users')(); } catch (e) { console.error('BBI_EXTRA_USERS: skipped because seeding extra users failed.'); }
+    await persist.saveNow(db, 'boot'); persist.markOk(); await persist.close();
+    console.log('Durable mode: restored the saved database (demo seed skipped).'); return;
+  }
+  console.log('Durable mode: no saved database yet, seeding a fresh one.');
+}
 for (const f of [dbFile, dbFile + '-wal', dbFile + '-shm']) fs.rmSync(f, { force: true });
 const bcrypt = require('bcryptjs'); const db = require('../src/db'); const wa = require('../src/whatsapp');
 const PW = process.env.DEMO_PASSWORD || 'BakuDemo2026!'; const hash = bcrypt.hashSync(PW, 10);
@@ -66,3 +81,6 @@ else console.log('Seeded demo classes and staff. Sample students skipped (SEED_S
 
 // Optional real accounts from BBI_EXTRA_USERS (JSON array). Missing or invalid values must not break startup.
 try { require('./seed-extra-users')(); } catch (e) { console.error('BBI_EXTRA_USERS: skipped because seeding extra users failed.'); }
+if (persist.enabled()) { await persist.saveNow(db, 'initial seed'); persist.markOk(); await persist.close(); }
+}
+main().catch(e => { console.error('Seed failed:', String(e.message || e).replace(/postgres(ql)?:\/\/\S+/gi, '[db-url]')); process.exit(1); });

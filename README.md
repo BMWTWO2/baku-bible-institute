@@ -39,4 +39,8 @@ Endpoint: `GET/POST /webhooks/whatsapp`
 3. WhatsApp → Configuration → Webhook: callback `https://<host>/webhooks/whatsapp`, verify token = your `WHATSAPP_VERIFY_TOKEN`; subscribe to `messages`.
 4. Set `WHATSAPP_APP_SECRET`, `DEMO_MODE=false`, a strong `SESSION_SECRET`, and real admin passwords. No live credentials are included here.
 
-Note: SQLite file lives in `data/`; on Render's free tier the disk is ephemeral — use a persistent disk or move to Postgres before real use.
+## Homework (anytime submission, late deductions, Bruce approval)
+See `docs/HOMEWORK_API.md`. Admin: `/admin/assignments`, `/admin/homework`. Student: `/telebe` → «Tapşırıqlarım». Test: `node test/homework-e2e.mjs` against a local demo server.
+
+## Persistence
+SQLite lives in `data/`; on Render's free tier the disk is wiped on every restart. Set `DATABASE_URL` (Postgres) to turn on durable snapshots of the whole database — see `docs/PERSISTENCE.md`.

@@ -1,6 +1,7 @@
 const path = require('path'); const crypto = require('crypto');
 const express = require('express'); const session = require('express-session'); const bcrypt = require('bcryptjs');
 const db = require('./db'); const wa = require('./whatsapp'); const bots = require('./bots'); const { draftCorrection } = require('./azeri'); const notes = require('./notes');
+const hw = require('./homework'); const late = require('./late'); const persist = require('./persist');
 
 const app = express(); const PORT = Number(process.env.PORT || 3050);
 const DEMO = process.env.DEMO_MODE != null ? process.env.DEMO_MODE !== 'false' : process.env.NODE_ENV !== 'production';
@@ -10,6 +11,8 @@ app.set('view engine', 'ejs'); app.set('views', path.join(__dirname, '..', 'view
 app.disable('x-powered-by');
 app.use((req, res, next) => { res.set({ 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin',
   'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https://images.unsplash.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'" }); next(); });
+// Durable mode: after any write request, save a snapshot of the whole DB (debounced). See src/persist.js.
+app.use((req, res, next) => { if (req.method !== 'GET' && req.method !== 'HEAD') res.on('finish', () => { if (res.statusCode < 400) persist.schedule(req.method + ' ' + req.path.split('/').slice(0, 3).join('/')); }); next(); });
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
 
 // Webhook (before urlencoded/CSRF). Raw body kept for signature check.
@@ -26,6 +29,32 @@ app.post('/webhooks/whatsapp', express.json({ limit: '1mb', verify: (req, _r, bu
   const ids = wa.ingest(req.body); res.json({ ok: true, stored: ids.length });
 });
 
+// Homework assistant API (token-protected JSON, no session/CSRF). See docs/HOMEWORK_API.md.
+const API_TOKEN = () => process.env.HOMEWORK_API_TOKEN || '';
+const apiAuth = (req, res, next) => {
+  const t = API_TOKEN(); if (t.length < 16) return res.status(503).json({ error: 'HOMEWORK_API_TOKEN is not configured on the server.' });
+  const got = String(req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if (got.length !== t.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(t))) return res.status(401).json({ error: 'unauthorized' });
+  next(); };
+const apiItem = s => ({ id: s.id, status: s.status, course_code: s.course_code, title: s.title, assignment_id: s.assignment_id, due_baku: s.due_at ? late.fmtBaku(s.due_at) : null, minutes_late: s.minutes_late, deduction_pct: s.deduction_pct, max_points: s.max_points, raw_score: s.raw_score, final_score: s.final_score, student_first_name: String(s.student_name || '').split(' ')[0], lang: s.lang, body: s.body,
+  translation_en: s.translation_en, draft_en: s.draft_en, final_en: s.final_en, approved_at: s.approved_at, submitted_at: s.submitted_at });
+const api = express.Router(); api.use(express.json({ limit: '200kb' }), apiAuth);
+api.get('/status', (req, res) => res.json({ counts: hw.counts(), builtInAi: hw.llmEnabled(), durable: persist.status().durable }));
+api.get('/needs-draft', (req, res) => res.json({ items: hw.byStatus('submitted').map(apiItem) }));
+api.post('/:id/draft', (req, res) => { const s = hw.get(req.params.id); if (!s) return res.status(404).json({ error: 'not found' });
+  const draft = String(req.body?.draft_en || '').trim(); const tr = String(req.body?.translation_en || '').trim();
+  if (!draft) return res.status(400).json({ error: 'draft_en is required' });
+  if (s.lang === 'az' && !tr) return res.status(400).json({ error: 'translation_en is required for Azeri submissions' });
+  if (!hw.setDraft(s.id, { translation_en: tr || null, draft_en: draft, by: String(req.body?.by || 'assistant').slice(0, 60) })) return res.status(409).json({ error: 'already approved by Bruce or returned; draft not changed', status: s.status });
+  res.json({ ok: true, id: s.id, status: 'drafted' }); });
+api.get('/needs-azeri', (req, res) => res.json({ items: hw.byStatus('approved_by_bruce').map(apiItem) }));
+api.post('/:id/return', (req, res) => { const s = hw.get(req.params.id); if (!s) return res.status(404).json({ error: 'not found' });
+  const az = String(req.body?.return_az || '').trim(); if (!az) return res.status(400).json({ error: 'return_az is required' });
+  if (s.status !== 'approved_by_bruce') return res.status(409).json({ error: 'refused: Bruce has not approved this correction', status: s.status });
+  if (!hw.setReturn(s.id, az, String(req.body?.by || 'assistant').slice(0, 60))) return res.status(409).json({ error: 'refused', status: hw.get(s.id)?.status });
+  res.json({ ok: true, id: s.id, status: 'returned' }); });
+app.use('/api/homework', api);
+
 app.use(express.urlencoded({ extended: false, limit: '200kb' }));
 app.use(session({ name: 'bbi.sid', secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'), resave: false, saveUninitialized: false,
   cookie: { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 1000 * 60 * 60 * 8 } }));
@@ -41,7 +70,7 @@ const audit = (req, action, detail) => db.prepare('INSERT INTO audit_log (user_i
 const sectionsList = () => db.prepare(`SELECT sec.*, c.code, c.title, c.title_az, t.name teacher FROM sections sec JOIN courses c ON c.id=sec.course_id LEFT JOIN teachers t ON t.id=sec.teacher_id ORDER BY c.code`).all();
 
 // Public
-app.get('/healthz', (_q, res) => res.json({ ok: true, app: 'baku-bible-institute', db: db.prepare('SELECT 1 ok').get().ok === 1, demo: DEMO }));
+app.get('/healthz', (_q, res) => res.json({ ok: true, app: 'baku-bible-institute', db: db.prepare('SELECT 1 ok').get().ok === 1, demo: DEMO, durable: persist.status().durable }));
 app.get('/', (req, res) => res.render('home', { title: 'Baku Bible Institute', stats: { students: db.prepare(`SELECT COUNT(*) n FROM students WHERE status='active'`).get().n, courses: db.prepare('SELECT COUNT(*) n FROM courses').get().n } }));
 app.get('/login', (req, res) => res.render('login', { title: 'Sign in', error: null, next: req.query.next || '' }));
 const attempts = new Map();
@@ -113,7 +142,52 @@ app.post('/admin/gradebook/:id', T, (req, res) => { for (const [k, v] of Object.
 
 // Homework review
 const subQ = `SELECT sb.*, s.name student, s.preferred_language, a.title_az, a.instructions_az, a.grade_item_id, c.code, cr.draft_az, cr.final_az, cr.is_sample, cr.drafted_by, cr.points cpoints, cr.approved_at FROM submissions sb JOIN students s ON s.id=sb.student_id JOIN assignments a ON a.id=sb.assignment_id JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id LEFT JOIN corrections cr ON cr.submission_id=sb.id`;
-app.get('/admin/homework', T, (req, res) => res.render('admin/homework', { title: 'Homework review', subs: db.prepare(subQ + ` ORDER BY sb.status='returned', sb.submitted_at DESC`).all() }));
+app.get('/admin/homework', T, (req, res) => res.render('admin/homework', { title: 'Homework review', anytime: hw.all(), builtInAi: hw.llmEnabled(), subs: db.prepare(subQ + ` ORDER BY sb.status='returned', sb.submitted_at DESC`).all() }));
+// Anytime homework: Bruce edits + approves the English correction; only then is it translated to Azeri and returned.
+const hwOr404 = (req, res) => { const s = hw.get(req.params.id); if (!s) res.status(404).render('error', { title: 'Not found', msg: 'No such submission.' }); return s; };
+app.get('/admin/homework/anytime/:id', T, (req, res) => { const s = hwOr404(req, res); if (!s) return; res.render('admin/anytime', { title: 'Homework · ' + s.title, s, late, builtInAi: hw.llmEnabled() }); });
+
+// Assignments: due date + time (Baku), max points, late policy. Creating one also creates its gradebook item.
+const assignQ = `SELECT a.*, c.code, c.title course, gi.max_points gi_max, (SELECT COUNT(*) FROM hw_submissions h WHERE h.assignment_id=a.id) nsub FROM assignments a JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id LEFT JOIN grade_items gi ON gi.id=a.grade_item_id`;
+app.get('/admin/assignments', T, (req, res) => res.render('admin/assignments', { title: 'Assignments', late, sections: sectionsList(), list: db.prepare(assignQ + ' ORDER BY a.due_at IS NULL, a.due_at DESC, a.id DESC').all() }));
+const readAssign = b => { const title = String(b.title_az || '').trim(); const due = late.bakuToUtcIso(b.due_date, b.due_time); const max = Number(b.max_points);
+  if (!title) throw new Error('Title is required.'); if (!due) throw new Error('Due date and time are required (Baku time).');
+  if (!isFinite(max) || max <= 0) throw new Error('Max points must be a positive number.');
+  return { title, instructions: String(b.instructions_az || '').trim() || null, due, dueDate: b.due_date, max, policy: late.normalizePolicy(String(b.late_policy || '').trim() || late.DEFAULT_POLICY) }; };
+app.post('/admin/assignments', T, (req, res) => { try { const v = readAssign(req.body); const sec = db.prepare('SELECT id FROM sections WHERE id=?').get(req.body.section_id); if (!sec) throw new Error('Pick a class.');
+    db.transaction(() => { const gi = db.prepare('INSERT INTO grade_items (section_id, title, max_points, due_date) VALUES (?,?,?,?)').run(sec.id, v.title, v.max, v.dueDate).lastInsertRowid;
+      db.prepare('INSERT INTO assignments (section_id, grade_item_id, title_az, instructions_az, due_date, due_at, max_points, late_policy) VALUES (?,?,?,?,?,?,?,?)').run(sec.id, gi, v.title, v.instructions, v.dueDate, v.due, v.max, v.policy); })();
+    audit(req, 'assignment.create', { title: v.title }); flash(req, 'Assignment created (and added to the gradebook).');
+  } catch (e) { flash(req, 'Not saved: ' + e.message); } res.redirect('/admin/assignments'); });
+app.post('/admin/assignments/:id', T, (req, res) => { const a = db.prepare('SELECT * FROM assignments WHERE id=?').get(req.params.id); if (!a) return res.sendStatus(404);
+  try { const v = readAssign(req.body);
+    db.transaction(() => { db.prepare('UPDATE assignments SET title_az=?, instructions_az=?, due_date=?, due_at=?, max_points=?, late_policy=? WHERE id=?').run(v.title, v.instructions, v.dueDate, v.due, v.max, v.policy, a.id);
+      if (a.grade_item_id) db.prepare('UPDATE grade_items SET title=?, max_points=?, due_date=? WHERE id=?').run(v.title, v.max, v.dueDate, a.grade_item_id);
+      // Re-time submissions that Bruce has not approved yet.
+      for (const h of db.prepare(`SELECT id, submitted_at FROM hw_submissions WHERE assignment_id=? AND status IN ('submitted','drafted')`).all(a.id)) { const m = late.minutesLate(v.due, h.submitted_at);
+        db.prepare('UPDATE hw_submissions SET due_at=?, max_points=?, late_policy=?, minutes_late=?, deduction_pct=? WHERE id=?').run(v.due, v.max, v.policy, m, late.deductionPct(m, v.policy), h.id); } })();
+    audit(req, 'assignment.update', { id: a.id }); flash(req, 'Assignment updated.');
+  } catch (e) { flash(req, 'Not saved: ' + e.message); } res.redirect('/admin/assignments'); });
+app.post('/admin/homework/anytime/:id/save', T, (req, res) => { const s = hwOr404(req, res); if (!s) return;
+  if (!hw.saveEdit(s.id, String(req.body.final_en || '').trim() || null)) flash(req, 'This homework was already returned; it can no longer be edited.'); else flash(req, 'Edits saved. Nothing has been sent to the student.');
+  res.redirect('/admin/homework/anytime/' + s.id); });
+app.post('/admin/homework/anytime/:id/approve', T, async (req, res) => { const s = hwOr404(req, res); if (!s) return;
+  const text = String(req.body.final_en || '').trim();
+  if (!text) { flash(req, 'Write or edit the English correction first.'); return res.redirect('/admin/homework/anytime/' + s.id); }
+  const num = v => (v == null || String(v).trim() === '') ? null : Number(v);
+  const raw = num(req.body.raw_score), ovr = num(req.body.final_override);
+  if ([raw, ovr].some(v => v != null && (!isFinite(v) || v < 0 || (s.max_points != null && v > s.max_points)))) { hw.saveEdit(s.id, text); flash(req, `Scores must be numbers from 0 to ${s.max_points ?? 'the max'}.`); return res.redirect('/admin/homework/anytime/' + s.id); }
+  if (s.max_points != null && raw == null && ovr == null) { hw.saveEdit(s.id, text); flash(req, 'Enter the score (points) before approving.'); return res.redirect('/admin/homework/anytime/' + s.id); }
+  if (req.body.reviewed !== 'yes') { hw.saveEdit(s.id, text); flash(req, 'Edits saved. Tick “I have reviewed and edited this correction” to approve.'); return res.redirect('/admin/homework/anytime/' + s.id); }
+  if (!hw.approve(s.id, text, req.session.user.name, hw.scoreFor(s, raw, ovr))) { flash(req, 'Already returned to the student.'); return res.redirect('/admin/homework/anytime/' + s.id); }
+  audit(req, 'homework.anytime.approve', { id: s.id });
+  const done = await hw.autoReturn(s.id);
+  flash(req, done ? 'Approved. The Azeri version was created and returned to the student.' : 'Approved. Your English correction is queued for Azeri translation; the student will see it once it is translated.');
+  res.redirect('/admin/homework/anytime/' + s.id); });
+app.post('/admin/homework/anytime/:id/unapprove', T, (req, res) => { const s = hwOr404(req, res); if (!s) return;
+  flash(req, hw.unapprove(s.id) ? 'Approval withdrawn. Nothing will be translated or returned until you approve again.' : 'Cannot withdraw: it was already returned.');
+  audit(req, 'homework.anytime.unapprove', { id: s.id }); res.redirect('/admin/homework/anytime/' + s.id); });
+app.post('/admin/homework/anytime/:id/delete', A, (req, res) => { const s = hwOr404(req, res); if (!s) return; hw.remove(s.id); audit(req, 'homework.anytime.delete', { id: s.id }); flash(req, 'Submission deleted.'); res.redirect('/admin/homework'); });
 app.get('/admin/homework/:id', T, (req, res) => { const sb = db.prepare(subQ + ' WHERE sb.id=?').get(req.params.id); if (!sb) return res.status(404).render('error', { title: 'Not found', msg: 'No such submission.' }); res.render('admin/review', { title: 'Review', sb }); });
 app.post('/admin/homework/:id/draft', T, async (req, res) => { const sb = db.prepare(subQ + ' WHERE sb.id=?').get(req.params.id); if (!sb) return res.sendStatus(404);
   const d = await draftCorrection(sb.body, sb.student);
@@ -169,12 +243,30 @@ app.get('/telebe', S, (req, res) => { const s = me(req); if (!s) return res.rend
     classes: db.prepare(`SELECT c.code, c.title_az, sec.schedule, sec.room, t.name teacher FROM enrollments e JOIN sections sec ON sec.id=e.section_id JOIN courses c ON c.id=sec.course_id LEFT JOIN teachers t ON t.id=sec.teacher_id WHERE e.student_id=?`).all(s.id),
     att: db.prepare(`SELECT a.status, COUNT(*) n FROM attendance a WHERE a.student_id=? GROUP BY a.status`).all(s.id),
     grades: db.prepare(`SELECT gi.title, gi.max_points, g.points, c.code FROM grades g JOIN grade_items gi ON gi.id=g.grade_item_id JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id WHERE g.student_id=?`).all(s.id),
-    hw: db.prepare(`SELECT a.*, c.code, sb.id sub_id, sb.status sub_status, sb.body, cr.final_az, cr.points FROM assignments a JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id JOIN enrollments e ON e.section_id=sec.id AND e.student_id=? LEFT JOIN submissions sb ON sb.assignment_id=a.id AND sb.student_id=? LEFT JOIN corrections cr ON cr.submission_id=sb.id AND sb.status='returned' ORDER BY a.due_date`).all(s.id, s.id) }); });
+    mine: hw.forStudent(req.session.user.email),
+    courses: (() => { const mineC = db.prepare(`SELECT c.code, c.title_az, c.title FROM enrollments e JOIN sections sec ON sec.id=e.section_id JOIN courses c ON c.id=sec.course_id WHERE e.student_id=? ORDER BY c.code`).all(s.id);
+      return mineC.length ? mineC : db.prepare('SELECT code, title_az, title FROM courses ORDER BY code').all(); })(),
+    late, nowIso: new Date().toISOString(),
+    hw: db.prepare(`SELECT a.*, c.code, (SELECT COUNT(*) FROM hw_submissions h WHERE h.assignment_id=a.id AND h.student_email=?) nmine FROM assignments a JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id JOIN enrollments e ON e.section_id=sec.id AND e.student_id=? ORDER BY COALESCE(a.due_at, a.due_date)`).all(String(req.session.user.email).toLowerCase(), s.id) }); });
+// Submit for a specific assignment. Never blocked by the due date; late work gets the assignment's deduction.
 app.post('/telebe/tapsiriq/:id', S, (req, res) => { const s = me(req); const body = String(req.body.body || '').trim();
-  const ok = db.prepare(`SELECT 1 FROM assignments a JOIN enrollments e ON e.section_id=a.section_id AND e.student_id=? WHERE a.id=?`).get(s?.id, req.params.id);
-  if (!ok || !body) { flash(req, 'Mətn boşdur və ya tapşırıq tapılmadı.'); return res.redirect('/telebe'); }
-  db.prepare(`INSERT INTO submissions (assignment_id, student_id, body) VALUES (?,?,?) ON CONFLICT(assignment_id, student_id) DO UPDATE SET body=excluded.body, status='submitted', submitted_at=CURRENT_TIMESTAMP`).run(req.params.id, s.id, body);
-  flash(req, 'Tapşırıq göndərildi! Müəllim yoxlayandan sonra rəyi burada görəcəksiniz.'); res.redirect('/telebe'); });
+  const a = db.prepare(`SELECT a.*, c.code FROM assignments a JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id JOIN enrollments e ON e.section_id=a.section_id AND e.student_id=? WHERE a.id=?`).get(s?.id, req.params.id);
+  if (!a || !body) { flash(req, 'Mətn boşdur və ya tapşırıq tapılmadı.'); return res.redirect('/telebe#tapsiriqlarim'); }
+  if (body.length > 20000) { flash(req, 'Mətn çox uzundur (ən çox 20 000 simvol).'); return res.redirect('/telebe#tapsiriqlarim'); }
+  const id = hw.create({ student: s, email: req.session.user.email, course_code: a.code, title: a.title_az, body, assignment: a }); const h = hw.get(id);
+  flash(req, 'Təşəkkür edirik! Tapşırığınız göndərildi.' + (h.minutes_late ? ` Son tarixdən sonra göndərildi (${late.lateText(h.minutes_late, 'az').toLowerCase()}), buna görə balınızdan ${h.deduction_pct}% çıxılacaq.` : '') + ' Müəllim yoxlayandan sonra rəyi burada görəcəksiniz.');
+  res.redirect('/telebe#tapsiriqlarim'); hw.autoDraft(id).then(ok => ok && persist.schedule('autodraft')).catch(() => {}); });
+
+// Anytime homework (no deadline): pick class, title, text.
+app.post('/telebe/tapsiriq', S, async (req, res) => { const s = me(req); const b = req.body;
+  const body = String(b.body || '').trim(); const title = String(b.title || '').trim().slice(0, 200); const code = String(b.course_code || '');
+  const course = db.prepare('SELECT code FROM courses WHERE code=?').get(code);
+  if (!s || !course || !title || !body) { flash(req, 'Zəhmət olmasa dərsi seçin, başlığı və mətni yazın.'); return res.redirect('/telebe#tapsiriqlarim'); }
+  if (body.length > 20000) { flash(req, 'Mətn çox uzundur (ən çox 20 000 simvol).'); return res.redirect('/telebe#tapsiriqlarim'); }
+  const id = hw.create({ student: s, email: req.session.user.email, course_code: course.code, title, body });
+  flash(req, 'Təşəkkür edirik! Tapşırığınız göndərildi. Müəllim yoxlayandan sonra rəyi burada görəcəksiniz.');
+  res.redirect('/telebe#tapsiriqlarim');
+  hw.autoDraft(id).then(ok => ok && persist.schedule('autodraft')).catch(() => {}); });
 
 // Class notes / Dərs xülasələri (content files, any signed-in user)
 const N = need('student', 'teacher', 'admin');
@@ -185,5 +277,13 @@ app.get('/telebe/xulaseler/:slug', N, (req, res) => { const n = notes.get(req.pa
 
 app.use((req, res) => res.status(404).render('error', { title: 'Not found', msg: 'Page not found.' }));
 app.use((err, req, res, _n) => { console.error(err); res.status(500).render('error', { title: 'Error', msg: 'Something went wrong.' }); });
-if (require.main === module) app.listen(PORT, () => console.log(`Baku Bible Institute on http://localhost:${PORT} (demo=${DEMO})`));
+if (require.main === module) {
+  if (persist.enabled()) {
+    if (persist.isMarked()) { persist.attach(db); console.log('Durable mode on: changes are saved to Postgres.'); }
+    else console.error('DATABASE_URL is set but this database was not restored by `npm run seed`; saving is OFF to protect the saved copy. Start with `npm run seed && npm start`.');
+    const bye = () => { persist.flush().finally(() => process.exit(0)); setTimeout(() => process.exit(0), 8000).unref(); };
+    process.on('SIGTERM', bye); process.on('SIGINT', bye);
+  }
+  app.listen(PORT, () => console.log(`Baku Bible Institute on http://localhost:${PORT} (demo=${DEMO})`));
+}
 module.exports = app;
