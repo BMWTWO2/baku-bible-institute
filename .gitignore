@@ -8,3 +8,6 @@ data/
 .bbi_api_token
 .bbi_test_*
 *.persist-ok
+.bbi_database_url
+.bbi_api_token
+.bbi_test_users_env

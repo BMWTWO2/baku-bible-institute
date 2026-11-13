@@ -25,3 +25,7 @@ CREATE TABLE IF NOT EXISTS hw_submissions (id INTEGER PRIMARY KEY, assignment_id
   submitted_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE INDEX IF NOT EXISTS hw_submissions_status ON hw_submissions(status);
 CREATE INDEX IF NOT EXISTS hw_submissions_email ON hw_submissions(student_email);
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+-- Email outbox: every email waits here as 'pending' until Bruce approves it on /admin/outbox. Nothing is sent automatically.
+CREATE TABLE IF NOT EXISTS email_outbox (id INTEGER PRIMARY KEY, to_email TEXT NOT NULL, to_name TEXT, subject TEXT NOT NULL, body_text TEXT NOT NULL, kind TEXT, ref TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sent','failed','discarded')), error TEXT, approved_by TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, sent_at TEXT);

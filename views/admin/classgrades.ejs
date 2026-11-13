@@ -1,0 +1,6 @@
+<%- include('../partials/head') %>
+<div class="pagehead rise"><div><p class="eyebrow"><a href="/admin/gradebook">Gradebook</a></p><h1><%= sec.code %> · <%= sec.title %></h1><p class="muted">Weighted averages (<%= items.length %> graded item<%= items.length===1?'':'s' %>). Final course grades are shown to students.</p></div></div>
+<table class="tbl rise d1"><thead><tr><th>Student</th><th>Weighted average</th><th>Final course grade</th></tr></thead><tbody>
+<% rows.forEach(r=>{ %><tr><td><a href="/admin/students/<%= r.id %>"><%= r.name %></a></td><td><%= r.pct==null ? '—' : r.pct + '%' %></td><td>
+<% if (user.role==='admin') { %><form method="post" action="/admin/enrollments/<%= r.enrollment_id %>/final" class="row"><input type="hidden" name="_csrf" value="<%= csrf %>"><input type="hidden" name="back" value="/admin/gradebook/class/<%= sec.id %>"><input name="final_grade" value="<%= r.final_grade||'' %>" maxlength="20" placeholder="e.g. A or 92" style="width:130px"><button class="btn sm">Save</button></form><% } else { %><%= r.final_grade || '—' %><% } %></td></tr><% }) %></tbody></table>
+<%- include('../partials/foot') %>

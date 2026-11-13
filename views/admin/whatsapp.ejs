@@ -1,7 +1,7 @@
 <%- include('../partials/head') %>
 <div class="pagehead rise"><div><h1>WhatsApp inbox</h1><p class="muted">Messages arrive at <code>POST /webhooks/whatsapp</code>. Bots suggest an action — nothing is applied until you click Apply.</p></div>
 <div class="tabs"><% ['pending','applied','dismissed','all'].forEach(t=>{ %><a href="?status=<%= t %>" class="<%= status===t?'on':'' %>"><%= t %></a><% }) %></div></div>
-<% if (!verifySet) { %><p class="note rise">WhatsApp is not connected yet (no WHATSAPP_VERIFY_TOKEN). Seeded demo messages are shown; use “Simulate a message” to test.</p><% } %>
+<% if (!verifySet) { %><p class="note rise">WhatsApp is not connected yet (no WHATSAPP_VERIFY_TOKEN). Use “Simulate a message” to test.</p><% } %>
 <div class="list rise d1"><% if (!msgs.length) { %><p class="muted">Nothing here.</p><% } %>
 <% msgs.forEach(m=>{ const p=m.payload; const act=m.suggested_action; const sec=(sections.find(s=>s.code===p.course)||{}).id; %>
 <article class="card wa <%= m.status %>"><div class="wa-head"><div class="avatar"><%= (m.contact_name||'?').trim()[0] %></div><div><b><%= m.contact_name || 'Unknown' %></b> <span class="muted small"><%= m.from_number %></span><br>

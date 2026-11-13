@@ -11,7 +11,8 @@
    correction, enters the raw score (late deduction applied automatically; final score can be overridden),
    ticks "I have reviewed and edited", clicks **Approve** → `approved_by_bruce`. He can withdraw approval.
 4. **Azeri return**: Bruce's approved English is translated into Azeri → `returned`. Only now does the
-   student see the feedback and score, and the score is written to the gradebook. No email is sent.
+   student see the feedback and score, and the score is written to the gradebook. An Azeri email notice is queued
+   in `/admin/outbox` and is sent only if Bruce clicks Send there.
 
 ## Assignments and late policy
 `/admin/assignments` (admin/teacher): class, Azeri title, instructions, **due date + time in Baku time

@@ -62,6 +62,10 @@ function setReturn(id, return_az, by) {
       db.prepare(`INSERT INTO grades (grade_item_id, student_id, points, comment, source) VALUES (?,?,?,?, 'homework') ON CONFLICT(grade_item_id, student_id) DO UPDATE SET points=excluded.points, comment=excluded.comment, source='homework', updated_at=CURRENT_TIMESTAMP`)
         .run(a.grade_item_id, s.student_id, s.final_score, note);
     }
+    // Queue (never send) an Azeri notice; Bruce approves it on /admin/outbox.
+    if (s.student_email) { const ob = require('./outbox');
+      const score = s.final_score != null ? `Bal: ${s.final_score}${s.max_points != null ? ' / ' + s.max_points : ''}${s.minutes_late && !s.score_overridden && s.deduction_points ? ` (gecikməyə görə ${s.deduction_points} bal çıxılıb)` : ''}` : '';
+      const t = ob.tplReturned({ name: s.student_name, title: s.title, feedback: return_az, score }); ob.queue({ to: s.student_email, name: s.student_name, subject: t.subject, text: t.text, kind: 'homework_returned', ref: 'hw:' + id }); }
     return true;
   })();
 }

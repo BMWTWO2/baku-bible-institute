@@ -4,7 +4,8 @@ Separate system from the Maryland Bible College CMS: its own roster and SQLite D
 ## Run
 ```
 npm install
-npm run seed        # wipes + loads FICTIONAL demo data
+npm run seed:demo   # LOCAL ONLY: wipes + loads FICTIONAL demo data
+npm run seed        # production boot step: never wipes, never adds sample data
 PORT=3050 npm start # http://localhost:3050  · health: /healthz
 npm run shots       # optional Playwright screenshots → screenshots/
 ```
@@ -41,6 +42,16 @@ Endpoint: `GET/POST /webhooks/whatsapp`
 
 ## Homework (anytime submission, late deductions, Bruce approval)
 See `docs/HOMEWORK_API.md`. Admin: `/admin/assignments`, `/admin/homework`. Student: `/telebe` → «Tapşırıqlarım». Test: `node test/homework-e2e.mjs` against a local demo server.
+
+## Grades
+`/admin/gradebook`: add graded items (exams, quizzes…) with max points and weight; per-student points and a comment the
+student sees; per-class weighted averages and final course grades (`/admin/gradebook/class/:id`, also on each student page).
+Students see averages, comments and final grades in their kabinet.
+
+## Email outbox
+`/admin/outbox`: every email (new-assignment notices and returned-homework notices, in Azeri) is queued as **pending** and
+is sent only when Bruce clicks Send / Send all, and only if `EMAIL_SENDING_ENABLED=true`. Provider: SendGrid HTTPS API
+(`SENDGRID_API_KEY`, `EMAIL_FROM`, `EMAIL_FROM_NAME`, `EMAIL_REPLY_TO`). "Check mail credential" validates the key without sending.
 
 ## Persistence
 SQLite lives in `data/`; on Render's free tier the disk is wiped on every restart. Set `DATABASE_URL` (Postgres) to turn on durable snapshots of the whole database — see `docs/PERSISTENCE.md`.

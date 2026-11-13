@@ -2,12 +2,13 @@
   "name": "baku-bible-institute",
   "version": "0.1.0",
   "private": true,
-  "description": "Baku Bible Institute — students, attendance, grades, Azeri homework, WhatsApp intake, helper bots",
+  "description": "Baku Bible Institute \u2014 students, attendance, grades, Azeri homework, WhatsApp intake, helper bots",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "seed": "node scripts/seed.js",
-    "shots": "node scripts/screenshots.mjs"
+    "shots": "node scripts/screenshots.mjs",
+    "seed:demo": "node scripts/seed-demo.js"
   },
   "engines": {
     "node": ">=20"

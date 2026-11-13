@@ -4,7 +4,10 @@
 <div class="kpis rise d1"><div class="kpi"><b><%= c('present') %></b><span>İştirak</span></div><div class="kpi"><b><%= c('late') %></b><span>Gecikmə</span></div><div class="kpi warn"><b><%= c('absent') %></b><span>Üzrsüz qayıb</span></div><div class="kpi"><b><%= c('excused') %></b><span>Üzrlü qayıb</span></div></div>
 <% if (c('absent')>2) { %><p class="note">Diqqət: 2-dən çox üzrsüz qayıbınız var. Zəhmət olmasa müəlliminizlə əlaqə saxlayın.</p><% } %>
 <div class="cols rise d2"><section class="card"><h2>Dərslərim</h2><ul><% classes.forEach(x=>{ %><li><b><%= x.code %></b> — <%= x.title_az %><br><span class="small muted"><%= x.teacher %> · <%= x.schedule %> · <%= x.room %></span></li><% }) %></ul></section>
-<section class="card"><h2>Qiymətlərim</h2><ul><% grades.forEach(g=>{ %><li><%= g.code %> · <%= g.title %>: <b><%= g.points %></b> / <%= g.max_points %></li><% }) %></ul></section></div>
+<section class="card"><h2>Qiymətlərim</h2>
+<% avgs.forEach(a=>{ %><p><b><%= a.code %></b> — orta bal: <b><%= a.pct==null ? 'hələ qiymət yoxdur' : a.pct + '%' %></b><% if (a.final_grade) { %> · <span class="pill green">Yekun qiymət: <%= a.final_grade %></span><% } %></p><% }) %>
+<ul><% grades.filter(g=>g.points!=null||g.comment).forEach(g=>{ %><li><%= g.code %> · <%= g.title %>: <b><%= g.points ?? '—' %></b> / <%= g.max_points %><% if (g.comment) { %><br><span class="small">Müəllimin qeydi: <%= g.comment %></span><% } %></li><% }) %></ul>
+<p class="small muted">Orta bal hər qiymətin çəkisi nəzərə alınaraq hesablanır.</p></section></div>
 <a class="card notes-link rise d2" href="/telebe/xulaseler"><p class="eyebrow">Dərs xülasələri</p><h3>Dərslərin qısa xülasələri</h3><p class="muted">Hər dərsdən sonra dərsin qısa xülasəsini burada oxuya bilərsiniz. →</p></a>
 <h2 class="rise" id="tapsiriqlarim">Tapşırıqlarım</h2>
 <p class="muted small rise">Bütün vaxtlar Bakı vaxtı ilədir. Tapşırığı istənilən vaxt göndərə bilərsiniz. Son tarixdən sonra göndərilsə, gecikməyə görə baldan bir az çıxılır (nə qədər gec, o qədər çox).</p>

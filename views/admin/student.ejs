@@ -5,9 +5,10 @@
 <label>WhatsApp<input name="whatsapp_phone" value="<%= s.whatsapp_phone||'' %>"></label><label>Email<input name="email" value="<%= s.email||'' %>"></label>
 <label>Status<select name="status"><% ['applicant','active','paused','graduated','withdrawn'].forEach(l=>{ %><option <%= s.status===l?'selected':'' %>><%= l %></option><% }) %></select></label>
 <label class="span">Notes<textarea name="notes"><%= s.notes||'' %></textarea></label><button class="btn">Save</button></form>
-<section class="card"><h2>Classes</h2><ul><% enr.forEach(e=>{ %><li><%= e.code %> — <%= e.title %></li><% }) %></ul>
+<section class="card"><h2>Classes</h2><ul><% enr.forEach(e=>{ const av=avgs.find(x=>x.section_id===e.section_id); %><li><b><%= e.code %></b> — <%= e.title %> · average <b><%= av && av.pct!=null ? av.pct+'%' : '—' %></b>
+<form method="post" action="/admin/enrollments/<%= e.id %>/final" class="row"><input type="hidden" name="_csrf" value="<%= csrf %>"><label class="small">Final course grade <input name="final_grade" value="<%= e.final_grade||'' %>" maxlength="20" placeholder="e.g. A or 92" style="width:130px"></label><button class="btn sm">Save</button></form></li><% }) %></ul>
 <form method="post" action="/admin/students/<%= s.id %>/enroll" class="row"><input type="hidden" name="_csrf" value="<%= csrf %>"><select name="section_id"><% sections.forEach(x=>{ %><option value="<%= x.id %>"><%= x.code %> <%= x.title %></option><% }) %></select><button class="btn sm">Enroll</button></form>
-<h2>Grades</h2><ul><% grades.forEach(g=>{ %><li><%= g.code %> · <%= g.title %>: <b><%= g.points %></b>/<%= g.max_points %></li><% }) %></ul>
+<h2>Grades</h2><ul><% grades.forEach(g=>{ %><li><%= g.code %> · <%= g.title %>: <b><%= g.points ?? '—' %></b>/<%= g.max_points %> <span class="small muted">(weight <%= g.weight ?? 1 %>)</span><% if (g.comment) { %><br><span class="small">“<%= g.comment %>”</span><% } %></li><% }) %></ul>
 <h2>WhatsApp</h2><% msgs.forEach(m=>{ %><p class="small">“<%= m.body %>” <span class="muted"><%= m.received_at %></span></p><% }) %></section></div>
 <section class="card rise d2"><h2>Attendance</h2><div class="chips"><% att.forEach(a=>{ %><span class="chip <%= a.status %>"><%= a.session_date %> · <%= a.code %> · <%= a.status %></span><% }) %></div></section>
 <%- include('../partials/foot') %>

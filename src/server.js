@@ -1,7 +1,7 @@
 const path = require('path'); const crypto = require('crypto');
 const express = require('express'); const session = require('express-session'); const bcrypt = require('bcryptjs');
 const db = require('./db'); const wa = require('./whatsapp'); const bots = require('./bots'); const { draftCorrection } = require('./azeri'); const notes = require('./notes');
-const hw = require('./homework'); const late = require('./late'); const persist = require('./persist');
+const hw = require('./homework'); const outbox = require('./outbox'); const grades = require('./grades'); const late = require('./late'); const persist = require('./persist');
 
 const app = express(); const PORT = Number(process.env.PORT || 3050);
 const DEMO = process.env.DEMO_MODE != null ? process.env.DEMO_MODE !== 'false' : process.env.NODE_ENV !== 'production';
@@ -101,10 +101,10 @@ app.post('/admin/students', A, (req, res) => { const b = req.body; if (!b.name?.
   audit(req, 'student.create', { id: r.lastInsertRowid }); flash(req, 'Student added.'); res.redirect('/admin/students/' + r.lastInsertRowid); });
 app.get('/admin/students/:id', A, (req, res) => {
   const s = db.prepare('SELECT * FROM students WHERE id=?').get(req.params.id); if (!s) return res.status(404).render('error', { title: 'Not found', msg: 'No such student.' });
-  res.render('admin/student', { title: s.name, s, sections: sectionsList(),
+  res.render('admin/student', { title: s.name, s, sections: sectionsList(), avgs: grades.averages(s.id),
     enr: db.prepare(`SELECT e.*, c.code, c.title, sec.id section_id FROM enrollments e JOIN sections sec ON sec.id=e.section_id JOIN courses c ON c.id=sec.course_id WHERE e.student_id=?`).all(s.id),
     att: db.prepare(`SELECT a.*, cs.session_date, c.code FROM attendance a JOIN class_sessions cs ON cs.id=a.session_id JOIN sections sec ON sec.id=cs.section_id JOIN courses c ON c.id=sec.course_id WHERE a.student_id=? ORDER BY cs.session_date DESC`).all(s.id),
-    grades: db.prepare(`SELECT g.*, gi.title, gi.max_points, c.code FROM grades g JOIN grade_items gi ON gi.id=g.grade_item_id JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id WHERE g.student_id=?`).all(s.id),
+    grades: db.prepare(`SELECT g.*, gi.title, gi.max_points, gi.weight, c.code FROM grades g JOIN grade_items gi ON gi.id=g.grade_item_id JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id WHERE g.student_id=?`).all(s.id),
     msgs: db.prepare(`SELECT * FROM whatsapp_messages WHERE student_id=? ORDER BY received_at DESC`).all(s.id) });
 });
 app.post('/admin/students/:id', A, (req, res) => { const b = req.body;
@@ -132,12 +132,35 @@ app.post('/admin/attendance', T, (req, res) => { const { section_id, date } = re
   audit(req, 'attendance.mark', { section_id, date }); flash(req, 'Attendance saved.'); res.redirect(`/admin/attendance?section=${section_id}&date=${date}`); });
 
 // Gradebook
-app.get('/admin/gradebook', T, (req, res) => res.render('admin/gradebook', { title: 'Gradebook', items: db.prepare(`SELECT gi.*, c.code, (SELECT COUNT(*) FROM grades g WHERE g.grade_item_id=gi.id AND g.points IS NOT NULL) graded, (SELECT COUNT(*) FROM enrollments e WHERE e.section_id=gi.section_id) n FROM grade_items gi JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id ORDER BY gi.due_date`).all() }));
+app.get('/admin/gradebook', T, (req, res) => res.render('admin/gradebook', { title: 'Gradebook', sections: sectionsList(), items: db.prepare(`SELECT gi.*, c.code, sec.id sid, (SELECT a.id FROM assignments a WHERE a.grade_item_id=gi.id) assignment_id, (SELECT COUNT(*) FROM grades g WHERE g.grade_item_id=gi.id AND g.points IS NOT NULL) graded, (SELECT COUNT(*) FROM enrollments e WHERE e.section_id=gi.section_id) n FROM grade_items gi JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id ORDER BY gi.due_date`).all() }));
 app.get('/admin/gradebook/:id', T, (req, res) => { const item = db.prepare(`SELECT gi.*, c.code, c.title course FROM grade_items gi JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id WHERE gi.id=?`).get(req.params.id);
   if (!item) return res.status(404).render('error', { title: 'Not found', msg: 'No such grade item.' });
   res.render('admin/gradeitem', { title: item.title, item, rows: db.prepare(`SELECT s.id, s.name, g.points, g.comment FROM enrollments e JOIN students s ON s.id=e.student_id LEFT JOIN grades g ON g.grade_item_id=? AND g.student_id=s.id WHERE e.section_id=? ORDER BY s.name`).all(item.id, item.section_id) }); });
 const setGrade = (item, student, points, comment, source) => db.prepare(`INSERT INTO grades (grade_item_id, student_id, points, comment, source) VALUES (?,?,?,?,?) ON CONFLICT(grade_item_id, student_id) DO UPDATE SET points=excluded.points, comment=COALESCE(excluded.comment, comment), source=excluded.source, updated_at=CURRENT_TIMESTAMP`).run(item, student, points, comment || null, source);
+// Graded items that are not homework (exams, quizzes, participation…). Homework items come from /admin/assignments.
+app.post('/admin/gradebook', T, (req, res) => { const b = req.body; const sec = db.prepare('SELECT id FROM sections WHERE id=?').get(b.section_id);
+  const max = Number(b.max_points), w = b.weight === '' || b.weight == null ? 1 : Number(b.weight);
+  if (!sec || !String(b.title || '').trim() || !(max > 0) || !(w >= 0)) { flash(req, 'Not saved: pick a class, a title, max points > 0 and weight ≥ 0.'); return res.redirect('/admin/gradebook'); }
+  const id = db.prepare('INSERT INTO grade_items (section_id, title, max_points, due_date, weight) VALUES (?,?,?,?,?)').run(sec.id, String(b.title).trim(), max, b.due_date || null, w).lastInsertRowid;
+  audit(req, 'gradeitem.create', { id }); flash(req, 'Graded item added.'); res.redirect('/admin/gradebook/' + id); });
+app.post('/admin/gradebook/:id/edit', T, (req, res) => { const b = req.body; const max = Number(b.max_points), w = Number(b.weight);
+  if (!String(b.title || '').trim() || !(max > 0) || !(w >= 0)) { flash(req, 'Not saved: title, max points > 0 and weight ≥ 0 are required.'); return res.redirect('/admin/gradebook/' + req.params.id); }
+  db.prepare('UPDATE grade_items SET title=?, max_points=?, weight=?, due_date=? WHERE id=?').run(String(b.title).trim(), max, w, b.due_date || null, req.params.id);
+  db.prepare('UPDATE assignments SET max_points=? WHERE grade_item_id=?').run(max, req.params.id);
+  audit(req, 'gradeitem.update', { id: req.params.id }); flash(req, 'Item updated.'); res.redirect('/admin/gradebook/' + req.params.id); });
+app.post('/admin/gradebook/:id/delete', A, (req, res) => { if (req.body.confirm !== 'yes') { flash(req, 'Tick the confirmation box to delete this item and its grades.'); return res.redirect('/admin/gradebook/' + req.params.id); }
+  db.transaction(() => { db.prepare('DELETE FROM assignments WHERE grade_item_id=?').run(req.params.id); db.prepare('DELETE FROM grade_items WHERE id=?').run(req.params.id); })();
+  audit(req, 'gradeitem.delete', { id: req.params.id }); flash(req, 'Item deleted.'); res.redirect('/admin/gradebook'); });
+app.get('/admin/gradebook/class/:sid', T, (req, res) => { const sec = sectionsList().find(x => x.id === Number(req.params.sid)); if (!sec) return res.status(404).render('error', { title: 'Not found', msg: 'No such class.' });
+  res.render('admin/classgrades', { title: sec.code + ' grades', sec, rows: grades.sectionAverages(sec.id), items: db.prepare('SELECT * FROM grade_items WHERE section_id=? ORDER BY due_date, id').all(sec.id) }); });
+app.post('/admin/enrollments/:id/final', A, (req, res) => { const v = String(req.body.final_grade || '').trim().slice(0, 20) || null;
+  const e = db.prepare('SELECT * FROM enrollments WHERE id=?').get(req.params.id); if (!e) return res.sendStatus(404);
+  db.prepare('UPDATE enrollments SET final_grade=? WHERE id=?').run(v, e.id); audit(req, 'enrollment.final_grade', { id: e.id });
+  flash(req, 'Final grade saved.'); const back = String(req.body.back || ''); res.redirect(back.startsWith('/admin/') ? back : '/admin/students/' + e.student_id); });
 app.post('/admin/gradebook/:id', T, (req, res) => { for (const [k, v] of Object.entries(req.body)) if (k.startsWith('p_') && v !== '') setGrade(req.params.id, Number(k.slice(2)), Number(v), null, 'manual');
+  for (const [k, v] of Object.entries(req.body)) if (k.startsWith('c_')) { const c = String(v).trim().slice(0, 2000) || null; const sid = Number(k.slice(2));
+    if (c) db.prepare(`INSERT INTO grades (grade_item_id, student_id, comment, source) VALUES (?,?,?, 'manual') ON CONFLICT(grade_item_id, student_id) DO UPDATE SET comment=excluded.comment, updated_at=CURRENT_TIMESTAMP`).run(req.params.id, sid, c);
+    else db.prepare('UPDATE grades SET comment=NULL WHERE grade_item_id=? AND student_id=?').run(req.params.id, sid); }
   audit(req, 'grades.save', { item: req.params.id }); flash(req, 'Grades saved.'); res.redirect('/admin/gradebook/' + req.params.id); });
 
 // Homework review
@@ -156,9 +179,18 @@ const readAssign = b => { const title = String(b.title_az || '').trim(); const d
   return { title, instructions: String(b.instructions_az || '').trim() || null, due, dueDate: b.due_date, max, policy: late.normalizePolicy(String(b.late_policy || '').trim() || late.DEFAULT_POLICY) }; };
 app.post('/admin/assignments', T, (req, res) => { try { const v = readAssign(req.body); const sec = db.prepare('SELECT id FROM sections WHERE id=?').get(req.body.section_id); if (!sec) throw new Error('Pick a class.');
     db.transaction(() => { const gi = db.prepare('INSERT INTO grade_items (section_id, title, max_points, due_date) VALUES (?,?,?,?)').run(sec.id, v.title, v.max, v.dueDate).lastInsertRowid;
-      db.prepare('INSERT INTO assignments (section_id, grade_item_id, title_az, instructions_az, due_date, due_at, max_points, late_policy) VALUES (?,?,?,?,?,?,?,?)').run(sec.id, gi, v.title, v.instructions, v.dueDate, v.due, v.max, v.policy); })();
-    audit(req, 'assignment.create', { title: v.title }); flash(req, 'Assignment created (and added to the gradebook).');
+      const aid = db.prepare('INSERT INTO assignments (section_id, grade_item_id, title_az, instructions_az, due_date, due_at, max_points, late_policy) VALUES (?,?,?,?,?,?,?,?)').run(sec.id, gi, v.title, v.instructions, v.dueDate, v.due, v.max, v.policy).lastInsertRowid;
+      // Queue (never send) an Azeri notice to every enrolled student; Bruce approves on /admin/outbox.
+      const code = db.prepare('SELECT c.code FROM sections s JOIN courses c ON c.id=s.course_id WHERE s.id=?').get(sec.id).code; let n = 0;
+      for (const st of db.prepare(`SELECT s.name, COALESCE(s.email, u.email) email FROM enrollments e JOIN students s ON s.id=e.student_id LEFT JOIN users u ON u.id=s.user_id WHERE e.section_id=? AND s.status='active'`).all(sec.id)) {
+        const t = outbox.tplAssignment({ name: st.name, code, title: v.title, due: late.fmtBaku(v.due), instructions: v.instructions }); if (outbox.queue({ to: st.email, name: st.name, subject: t.subject, text: t.text, kind: 'assignment_notice', ref: 'assignment:' + aid })) n++; }
+      req._queued = n; })();
+    audit(req, 'assignment.create', { title: v.title }); flash(req, `Assignment created and shown to every student in the class. ${req._queued || 0} Azeri email notice(s) are waiting in the Outbox for your approval — nothing has been sent.`);
   } catch (e) { flash(req, 'Not saved: ' + e.message); } res.redirect('/admin/assignments'); });
+app.post('/admin/assignments/:id/delete', A, (req, res) => { const a = db.prepare('SELECT * FROM assignments WHERE id=?').get(req.params.id); if (!a) return res.sendStatus(404);
+  if (req.body.confirm !== 'yes') { flash(req, 'Tick the confirmation box to delete the assignment.'); return res.redirect('/admin/assignments'); }
+  db.transaction(() => { db.prepare(`DELETE FROM email_outbox WHERE ref=? AND status='pending'`).run('assignment:' + a.id); db.prepare('DELETE FROM assignments WHERE id=?').run(a.id); if (a.grade_item_id) db.prepare('DELETE FROM grade_items WHERE id=?').run(a.grade_item_id); })();
+  audit(req, 'assignment.delete', { id: a.id }); flash(req, 'Assignment deleted (its submissions are kept).'); res.redirect('/admin/assignments'); });
 app.post('/admin/assignments/:id', T, (req, res) => { const a = db.prepare('SELECT * FROM assignments WHERE id=?').get(req.params.id); if (!a) return res.sendStatus(404);
   try { const v = readAssign(req.body);
     db.transaction(() => { db.prepare('UPDATE assignments SET title_az=?, instructions_az=?, due_date=?, due_at=?, max_points=?, late_policy=? WHERE id=?').run(v.title, v.instructions, v.dueDate, v.due, v.max, v.policy, a.id);
@@ -230,6 +262,26 @@ app.post('/admin/whatsapp/:id/apply', A, (req, res) => {
   res.redirect('/admin/whatsapp');
 });
 
+// Email outbox: nothing is sent unless Bruce clicks Send here (and EMAIL_SENDING_ENABLED=true).
+app.get('/admin/outbox', A, (req, res) => { const status = ['pending', 'sent', 'failed', 'discarded', 'all'].includes(req.query.status) ? req.query.status : 'pending';
+  res.render('admin/outbox', { title: 'Email outbox', status, msgs: outbox.list(status), counts: outbox.counts(), cfg: outbox.cfg(), check: req.session.mailCheck || null }); delete req.session.mailCheck; });
+app.post('/admin/outbox/verify', A, async (req, res) => { req.session.mailCheck = await outbox.verify(); res.redirect('/admin/outbox'); });
+app.post('/admin/outbox/:id/send', A, async (req, res) => { const r = await outbox.send(Number(req.params.id), req.session.user.name); audit(req, 'outbox.send', { id: req.params.id, ok: r.ok });
+  flash(req, r.ok ? 'Email sent.' : 'Not sent: ' + r.error); res.redirect('/admin/outbox'); });
+app.post('/admin/outbox/send-all', A, async (req, res) => { if (req.body.confirm !== 'yes') { flash(req, 'Tick the confirmation box to send all pending emails.'); return res.redirect('/admin/outbox'); }
+  let ok = 0, bad = 0; let last = ''; for (const m of outbox.list('pending')) { const r = await outbox.send(m.id, req.session.user.name); if (r.ok) ok++; else { bad++; last = r.error; } }
+  audit(req, 'outbox.send_all', { ok, bad }); flash(req, `Sent ${ok}. ${bad ? `Not sent: ${bad} (${last})` : ''}`); res.redirect('/admin/outbox'); });
+app.post('/admin/outbox/:id/edit', A, (req, res) => { outbox.edit(Number(req.params.id), String(req.body.subject || '').slice(0, 200), String(req.body.body_text || '')); flash(req, 'Email updated (still waiting for your approval).'); res.redirect('/admin/outbox'); });
+app.post('/admin/outbox/:id/delete', A, (req, res) => { const m = outbox.list('discarded').find(x => x.id === Number(req.params.id)); if (m) outbox.remove(m.id); flash(req, m ? 'Discarded email removed.' : 'Only discarded emails can be removed.'); res.redirect('/admin/outbox?status=discarded'); });
+app.post('/admin/outbox/:id/discard', A, (req, res) => { outbox.discard(Number(req.params.id)); audit(req, 'outbox.discard', { id: req.params.id }); flash(req, 'Email discarded.'); res.redirect('/admin/outbox'); });
+
+// Change my password (staff)
+app.get('/admin/password', T, (req, res) => res.render('admin/password', { title: 'Change password' }));
+app.post('/admin/password', T, (req, res) => { const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.session.user.id); const n = String(req.body.new_password || '');
+  if (!u || !bcrypt.compareSync(String(req.body.current_password || ''), u.password_hash)) { flash(req, 'Current password is incorrect.'); return res.redirect('/admin/password'); }
+  if (n.length < 12 || n !== String(req.body.confirm_password || '')) { flash(req, 'New password must be at least 12 characters and match the confirmation.'); return res.redirect('/admin/password'); }
+  db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(bcrypt.hashSync(n, 10), u.id); audit(req, 'password.change', {}); flash(req, 'Password changed.'); res.redirect('/admin/password'); });
+
 // Bots + report
 app.get('/admin/bots', A, (req, res) => res.render('admin/bots', { title: 'Helper bots', bots: bots.BOTS, r: bots.weeklyReport(), herald: process.env.HERALD_HOURS || 48 }));
 app.get('/admin/report', A, (req, res) => res.render('admin/report', { title: 'Weekly report', r: bots.weeklyReport(), bots: bots.BOTS }));
@@ -242,7 +294,8 @@ app.get('/telebe', S, (req, res) => { const s = me(req); if (!s) return res.rend
   res.render('student/home', { title: 'Tələbə kabineti', s, lang: 'az',
     classes: db.prepare(`SELECT c.code, c.title_az, sec.schedule, sec.room, t.name teacher FROM enrollments e JOIN sections sec ON sec.id=e.section_id JOIN courses c ON c.id=sec.course_id LEFT JOIN teachers t ON t.id=sec.teacher_id WHERE e.student_id=?`).all(s.id),
     att: db.prepare(`SELECT a.status, COUNT(*) n FROM attendance a WHERE a.student_id=? GROUP BY a.status`).all(s.id),
-    grades: db.prepare(`SELECT gi.title, gi.max_points, g.points, c.code FROM grades g JOIN grade_items gi ON gi.id=g.grade_item_id JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id WHERE g.student_id=?`).all(s.id),
+    avgs: grades.averages(s.id),
+    grades: db.prepare(`SELECT gi.title, gi.max_points, gi.weight, g.points, g.comment, c.code FROM grades g JOIN grade_items gi ON gi.id=g.grade_item_id JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id WHERE g.student_id=?`).all(s.id),
     mine: hw.forStudent(req.session.user.email),
     courses: (() => { const mineC = db.prepare(`SELECT c.code, c.title_az, c.title FROM enrollments e JOIN sections sec ON sec.id=e.section_id JOIN courses c ON c.id=sec.course_id WHERE e.student_id=? ORDER BY c.code`).all(s.id);
       return mineC.length ? mineC : db.prepare('SELECT code, title_az, title FROM courses ORDER BY code').all(); })(),

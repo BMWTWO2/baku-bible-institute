@@ -1,5 +1,11 @@
 <%- include('../partials/head') %>
-<div class="pagehead rise"><div><p class="eyebrow"><a href="/admin/gradebook">Gradebook</a> · <%= item.code %></p><h1><%= item.title %></h1></div></div>
-<form method="post" class="card rise d1"><input type="hidden" name="_csrf" value="<%= csrf %>"><table class="tbl"><thead><tr><th>Student</th><th>Points / <%= item.max_points %></th><th>Comment</th></tr></thead><tbody>
-<% rows.forEach(r=>{ %><tr><td><%= r.name %></td><td><input class="num" type="number" step="0.5" min="0" max="<%= item.max_points %>" name="p_<%= r.id %>" value="<%= r.points ?? '' %>"></td><td class="small"><%= r.comment||'' %></td></tr><% }) %></tbody></table><button class="btn">Save grades</button></form>
+<div class="pagehead rise"><div><p class="eyebrow"><a href="/admin/gradebook">Gradebook</a> · <%= item.code %></p><h1><%= item.title %></h1><p class="muted">Max <%= item.max_points %> · weight <%= item.weight ?? 1 %><%= item.due_date ? ' · ' + item.due_date : '' %></p></div></div>
+<form method="post" class="card rise d1"><input type="hidden" name="_csrf" value="<%= csrf %>"><table class="tbl"><thead><tr><th>Student</th><th>Points / <%= item.max_points %></th><th>Comment (the student sees this)</th></tr></thead><tbody>
+<% rows.forEach(r=>{ %><tr><td><%= r.name %></td><td><input class="num" type="number" step="0.5" min="0" max="<%= item.max_points %>" name="p_<%= r.id %>" value="<%= r.points ?? '' %>"></td><td><textarea name="c_<%= r.id %>" rows="2" maxlength="2000"><%= r.comment||'' %></textarea></td></tr><% }) %></tbody></table><button class="btn">Save grades &amp; comments</button></form>
+<details class="card rise d2"><summary><b>Edit this item</b></summary>
+<form method="post" action="/admin/gradebook/<%= item.id %>/edit" class="formgrid"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<label>Title<input name="title" value="<%= item.title %>" required></label><label>Max points<input class="num" type="number" name="max_points" min="0.5" step="0.5" value="<%= item.max_points %>" required></label>
+<label>Weight<input class="num" type="number" name="weight" min="0" step="0.1" value="<%= item.weight ?? 1 %>" required></label><label>Date<input type="date" name="due_date" value="<%= item.due_date || '' %>"></label>
+<div><button class="btn">Save</button></div></form>
+<% if (user.role==='admin') { %><form method="post" action="/admin/gradebook/<%= item.id %>/delete" class="row"><input type="hidden" name="_csrf" value="<%= csrf %>"><label class="row"><input type="checkbox" name="confirm" value="yes" style="width:auto"> Delete this item and all its grades</label><button class="btn ghost sm">Delete</button></form><% } %></details>
 <%- include('../partials/foot') %>
