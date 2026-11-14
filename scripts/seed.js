@@ -2,9 +2,25 @@
 // sample data. In durable mode (DATABASE_URL set) it first restores the newest saved copy of the database.
 // Then it makes sure the base records exist (admin, Pastor Bruce Wright, THG 101, ECC 101 Body Life),
 // removes any leftover fictional demo rows, and adds real accounts from BBI_EXTRA_USERS.
-// For local demo data use `npm run seed:demo` (wipes; refuses in production).
+// If BBI_ADMIN_EMAIL is set and no user already has that address, the existing admin user's email is
+// updated to it (the address is not stored in this repo). For local demo data use `npm run seed:demo`
+// (wipes; refuses in production).
 const persist = require('../src/persist');
 const clean = e => String(e && e.message || e).replace(/postgres(ql)?:\/\/\S+/gi, '[db-url]');
+function applyAdminEmail(db) {
+  const wanted = String(process.env.BBI_ADMIN_EMAIL || '').trim().toLowerCase();
+  if (!wanted) return;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(wanted)) {
+    console.error('BBI_ADMIN_EMAIL: ignored because it is not a valid email address.');
+    return;
+  }
+  if (db.prepare(`SELECT 1 FROM users WHERE lower(email)=?`).get(wanted)) return;
+  const admin = db.prepare(`SELECT id FROM users WHERE role='admin' AND email='admin@baku-bible.example'`).get()
+    || db.prepare(`SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1`).get();
+  if (!admin) return;
+  db.prepare(`UPDATE users SET email=? WHERE id=? AND role='admin'`).run(wanted, admin.id);
+  console.log('Admin account email updated from BBI_ADMIN_EMAIL.');
+}
 async function main() {
   require('fs').rmSync((process.env.DB_PATH || require('path').join(__dirname, '..', 'data', 'bbi.sqlite')) + '.persist-ok', { force: true });
   let restored = 'off';
@@ -40,6 +56,7 @@ async function main() {
     }
   })();
   try { require('./seed-extra-users')(); } catch (e) { console.error('BBI_EXTRA_USERS: skipped because seeding extra users failed.'); }
+  applyAdminEmail(db);
   if (persist.enabled()) { await persist.saveNow(db, 'boot'); persist.markOk(); await persist.close(); }
   console.log(restored === 'restored' ? 'Durable mode: restored the saved database.' : restored === 'empty' ? 'Durable mode: no saved database yet; created base records and saved.' : 'Local mode (no DATABASE_URL): base records ensured; data lives only in the local SQLite file.');
 }
