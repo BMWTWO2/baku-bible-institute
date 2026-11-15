@@ -8,4 +8,7 @@ const addCol = (t, c, def) => { if (!db.prepare(`PRAGMA table_info(${t})`).all()
 addCol('assignments', 'due_at', 'TEXT');        // UTC ISO instant; entered/shown in Baku time
 addCol('assignments', 'max_points', 'REAL');
 addCol('assignments', 'late_policy', 'TEXT');   // e.g. "24:5, 72:10, 168:20, *:30"
+addCol('hw_submissions', 'source', "TEXT NOT NULL DEFAULT 'web'");
+addCol('hw_submissions', 'media_note', 'TEXT');
+addCol('hw_submissions', 'source_ref', 'TEXT');
 module.exports = db;

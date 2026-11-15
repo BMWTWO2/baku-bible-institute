@@ -10,19 +10,31 @@ function detectLang(text) {
   if (/[а-яё]/i.test(t)) return 'ru';
   return 'en';
 }
-const cols = `id, assignment_id, due_at, max_points, late_policy, minutes_late, deduction_pct, raw_score, deduction_points, final_score, score_overridden, student_id, student_name, course_code, title, body, lang, status, translation_en, draft_en, drafted_by, drafted_at, final_en, approved_by, approved_at, return_az, returned_by, returned_at, submitted_at, updated_at`;
+const cols = `id, assignment_id, due_at, max_points, late_policy, minutes_late, deduction_pct, raw_score, deduction_points, final_score, score_overridden, student_id, student_name, course_code, title, body, lang, status, translation_en, draft_en, drafted_by, drafted_at, final_en, approved_by, approved_at, return_az, returned_by, returned_at, submitted_at, updated_at, source, media_note, source_ref`;
 const get = id => db.prepare(`SELECT ${cols}, student_email FROM hw_submissions WHERE id=?`).get(id);
 const all = () => db.prepare(`SELECT ${cols} FROM hw_submissions ORDER BY CASE status WHEN 'drafted' THEN 0 WHEN 'submitted' THEN 1 WHEN 'approved_by_bruce' THEN 2 ELSE 3 END, submitted_at DESC`).all();
 const byStatus = s => db.prepare(`SELECT ${cols} FROM hw_submissions WHERE status=? ORDER BY submitted_at`).all(s);
 const forStudent = email => db.prepare(`SELECT ${cols} FROM hw_submissions WHERE student_email=? ORDER BY submitted_at DESC`).all(String(email || '').toLowerCase());
 const counts = () => Object.fromEntries(STATUSES.map(s => [s, db.prepare('SELECT COUNT(*) n FROM hw_submissions WHERE status=?').get(s).n]));
 // Never blocked: late work is accepted and the deduction is computed from the assignment's policy.
-function create({ student, email, course_code, title, body, assignment }) {
+function create({ student, email, course_code, title, body, assignment, source, media_note, source_ref }) {
   const at = now(); const a = assignment || null;
   const due = a?.due_at || null; const min = due ? late.minutesLate(due, at) : 0;
   const policy = a ? (a.late_policy || late.DEFAULT_POLICY) : null; const pct = due ? late.deductionPct(min, policy) : 0;
-  return db.prepare(`INSERT INTO hw_submissions (assignment_id, due_at, max_points, late_policy, minutes_late, deduction_pct, student_id, student_email, student_name, course_code, title, body, lang, submitted_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(a?.id || null, due, a?.max_points ?? null, policy, min, pct, student?.id || null, String(email || '').toLowerCase(), student?.name || 'Tələbə', course_code, title, body, detectLang(body), at, at).lastInsertRowid;
+  const src = ['web','whatsapp','email'].includes(source) ? source : 'web';
+  return db.prepare(`INSERT INTO hw_submissions (assignment_id, due_at, max_points, late_policy, minutes_late, deduction_pct, student_id, student_email, student_name, course_code, title, body, lang, submitted_at, updated_at, source, media_note, source_ref) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(a?.id || null, due, a?.max_points ?? null, policy, min, pct, student?.id || null, String(email || '').toLowerCase(), student?.name || 'Tələbə', course_code, title, body, detectLang(body), at, at, src, media_note || null, source_ref || null).lastInsertRowid;
+}
+function setMediaNote(id, note) {
+  return db.prepare(`UPDATE hw_submissions SET media_note=?, updated_at=? WHERE id=?`).run(note || null, now(), id).changes === 1;
+}
+function setAssignment(id, assignment) {
+  const s = get(id); if (!s || s.status === 'returned' || !assignment) return false;
+  const due = assignment.due_at || null; const min = due ? late.minutesLate(due, s.submitted_at) : 0;
+  const policy = assignment.late_policy || late.DEFAULT_POLICY; const pct = due ? late.deductionPct(min, policy) : 0;
+  const title = assignment.title_az || s.title; const code = assignment.code || s.course_code;
+  return db.prepare(`UPDATE hw_submissions SET assignment_id=?, course_code=?, title=?, due_at=?, max_points=?, late_policy=?, minutes_late=?, deduction_pct=?, updated_at=? WHERE id=? AND status IN ('submitted','drafted','approved_by_bruce')`)
+    .run(assignment.id, code, title, due, assignment.max_points ?? null, policy, min, pct, now(), id).changes === 1;
 }
 // Score at approval: raw points minus the late deduction; Bruce may override the final number.
 function scoreFor(s, raw, override) {
@@ -93,4 +105,4 @@ async function autoReturn(id) {
   try { const az = await chat('Translate this teacher feedback into warm, simple Azerbaijani (Latin script). Keep the meaning exactly; do not add anything. Output only the translation.', s.final_en);
     return setReturn(id, az, 'Homework Helper (AI)'); } catch { console.error('autoReturn failed for', id); return false; }
 }
-module.exports = { scoreFor, STATUSES, detectLang, get, all, byStatus, forStudent, counts, create, setDraft, saveEdit, approve, unapprove, setReturn, remove, llmEnabled, autoDraft, autoReturn };
+module.exports = { scoreFor, STATUSES, detectLang, get, all, byStatus, forStudent, counts, create, setMediaNote, setAssignment, setDraft, saveEdit, approve, unapprove, setReturn, remove, llmEnabled, autoDraft, autoReturn };

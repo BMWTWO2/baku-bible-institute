@@ -1,10 +1,18 @@
 // WhatsApp intake: normalize payloads, match students, suggest (never auto-apply) actions.
-const db = require('./db');
+const db = require('./db'); const inbound = require('./inbound');
 const digits = s => String(s || '').replace(/\D/g, '');
 function matchStudent(phone) {
   const d = digits(phone); if (!d) return null;
-  const rows = db.prepare('SELECT id, name, whatsapp_phone FROM students WHERE whatsapp_phone IS NOT NULL').all();
+  const rows = db.prepare(`SELECT s.*, u.email AS user_email FROM students s LEFT JOIN users u ON u.id=s.user_id WHERE s.whatsapp_phone IS NOT NULL`).all();
   return rows.find(r => { const p = digits(r.whatsapp_phone); return p && (p === d || p.endsWith(d.slice(-9)) && d.length >= 9); }) || null;
+}
+function extractMedia(m) {
+  const out = [];
+  for (const typ of ['image', 'document', 'audio', 'video', 'sticker']) {
+    const x = m && m[typ]; if (!x) continue;
+    out.push({ type: typ, id: x.id || null, mime: x.mime_type || null, filename: x.filename || null, caption: x.caption || null });
+  }
+  return out;
 }
 // Accept Meta Cloud API payloads or simple {from,name,text}
 function normalize(body) {
@@ -14,12 +22,14 @@ function normalize(body) {
       const v = ch.value || {}; const contacts = v.contacts || [];
       for (const m of (v.messages || [])) {
         const c = contacts.find(x => x.wa_id === m.from) || contacts[0] || {};
-        const text = m.text?.body || m.button?.text || m.interactive?.button_reply?.title || m.image?.caption || m.document?.caption || `[${m.type} message]`;
-        out.push({ wa_message_id: m.id, from: m.from, name: c.profile?.name || null, text, ts: m.timestamp ? new Date(Number(m.timestamp) * 1000).toISOString() : new Date().toISOString(), raw: m });
+        const media = extractMedia(m);
+        const text = m.text?.body || m.button?.text || m.interactive?.button_reply?.title || m.image?.caption || m.document?.caption || (media.length ? '' : `[${m.type} message]`);
+        out.push({ wa_message_id: m.id, from: m.from, name: c.profile?.name || null, text, media, ts: m.timestamp ? new Date(Number(m.timestamp) * 1000).toISOString() : new Date().toISOString(), raw: m });
       }
     }
   } else if (body && (body.from || body.text)) {
-    out.push({ wa_message_id: body.id || null, from: String(body.from || ''), name: body.name || null, text: String(body.text || ''), ts: body.timestamp || new Date().toISOString(), raw: body });
+    const media = Array.isArray(body.media) ? body.media : extractMedia(body);
+    out.push({ wa_message_id: body.id || null, from: String(body.from || ''), name: body.name || null, text: String(body.text || ''), media, ts: body.timestamp || new Date().toISOString(), raw: body });
   }
   return out;
 }
@@ -43,16 +53,27 @@ function suggest(text, student) {
   return { action: 'none', payload: {} };
 }
 function ingest(body, { demo = false } = {}) {
-  const items = normalize(body); const saved = [];
+  const items = normalize(body); const saved = []; const homework = [];
   const ins = db.prepare(`INSERT OR IGNORE INTO whatsapp_messages (wa_message_id, from_number, contact_name, body, received_at, raw_json, student_id, suggested_action, suggested_payload, is_demo) VALUES (?,?,?,?,?,?,?,?,?,?)`);
   for (const m of items) {
     const st = matchStudent(m.from);
-    const teacher = !st && db.prepare('SELECT id FROM teachers').all().length && db.prepare('SELECT id, whatsapp_phone FROM teachers').all().find(x => digits(x.whatsapp_phone) === digits(m.from));
+    const teacher = !st && db.prepare('SELECT id, whatsapp_phone FROM teachers').all().find(x => x.whatsapp_phone && digits(x.whatsapp_phone) === digits(m.from));
     const s = suggest(m.text, teacher ? { isTeacher: true } : st);
     if (s.action === 'create_student') Object.assign(s.payload, { name: m.name || '', whatsapp_phone: '+' + digits(m.from) });
     const r = ins.run(m.wa_message_id, '+' + digits(m.from), m.name, m.text, m.ts, JSON.stringify(m.raw), st?.id || null, s.action, JSON.stringify(s.payload), demo ? 1 : 0);
+    if (!r.changes) continue;
     saved.push(r.lastInsertRowid);
+    // Auto-file written homework from an active matched student. Never auto-reply. Unknown numbers stay in the inbox.
+    if (st && st.status === 'active' && inbound.looksLikeHomework({ text: m.text, media: m.media })) {
+      const mediaNote = inbound.formatMediaNote(m.media);
+      const filed = inbound.fileHomework({ student: st, email: st.email || st.user_email, source: 'whatsapp', text: m.text, mediaNote, source_ref: 'whatsapp:' + r.lastInsertRowid });
+      if (filed) {
+        db.prepare(`UPDATE whatsapp_messages SET status='applied', suggested_action='file_homework', suggested_payload=?, handled_at=CURRENT_TIMESTAMP WHERE id=?`)
+          .run(JSON.stringify({ hw_submission_id: filed.id, assignment_id: filed.assignment_id, needs_assignment: filed.needs_assignment }), r.lastInsertRowid);
+        homework.push({ messageId: r.lastInsertRowid, hwId: filed.id, media: m.media || [] });
+      }
+    }
   }
-  return saved;
+  return { ids: saved, homework };
 }
-module.exports = { normalize, suggest, ingest, matchStudent, digits };
+module.exports = { normalize, suggest, ingest, matchStudent, digits, extractMedia };

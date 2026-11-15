@@ -1,7 +1,7 @@
 const path = require('path'); const crypto = require('crypto');
 const express = require('express'); const session = require('express-session'); const bcrypt = require('bcryptjs');
 const db = require('./db'); const wa = require('./whatsapp'); const bots = require('./bots'); const { draftCorrection } = require('./azeri'); const notes = require('./notes');
-const hw = require('./homework'); const outbox = require('./outbox'); const grades = require('./grades'); const late = require('./late'); const persist = require('./persist');
+const hw = require('./homework'); const outbox = require('./outbox'); const grades = require('./grades'); const late = require('./late'); const persist = require('./persist'); const inbound = require('./inbound');
 
 const app = express(); const PORT = Number(process.env.PORT || 3050);
 const DEMO = process.env.DEMO_MODE != null ? process.env.DEMO_MODE !== 'false' : process.env.NODE_ENV !== 'production';
@@ -26,7 +26,12 @@ app.post('/webhooks/whatsapp', express.json({ limit: '1mb', verify: (req, _r, bu
     const sig = req.get('x-hub-signature-256') || ''; const exp = 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(req.rawBody || '').digest('hex');
     if (sig.length !== exp.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(exp))) return res.sendStatus(401);
   } else if (!DEMO && !(VERIFY_TOKEN && req.get('x-bbi-token') === VERIFY_TOKEN)) return res.sendStatus(401);
-  const ids = wa.ingest(req.body); res.json({ ok: true, stored: ids.length });
+  const { ids, homework } = wa.ingest(req.body);
+  res.json({ ok: true, stored: ids.length, filed: (homework || []).length });
+  for (const h of homework || []) {
+    inbound.attachWhatsAppMedia(h.hwId, h.media).then(note => { if (note) persist.schedule('wa-media'); }).catch(() => {});
+    hw.autoDraft(h.hwId).then(ok => ok && persist.schedule('autodraft')).catch(() => {});
+  }
 });
 
 // Homework assistant API (token-protected JSON, no session/CSRF). See docs/HOMEWORK_API.md.
@@ -56,6 +61,33 @@ api.post('/:id/return', (req, res) => { const s = hw.get(req.params.id); if (!s)
 app.use('/api/homework', api);
 // Read-only helper-bot flags for the scheduled check. Same bearer token. No writes.
 app.get('/api/flags', apiAuth, (_req, res) => res.json(bots.flagsPayload()));
+
+// Inbound homework email (Cloudflare Email Worker posts here). Never sends a reply.
+const INBOUND_TOKEN = () => process.env.INBOUND_EMAIL_TOKEN || '';
+const inboundAuth = (req, res, next) => {
+  const t = INBOUND_TOKEN(); if (t.length < 16) return res.status(503).json({ error: 'INBOUND_EMAIL_TOKEN is not configured on the server.' });
+  const got = String(req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if (got.length !== t.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(t))) return res.status(401).json({ error: 'unauthorized' });
+  next(); };
+app.post('/api/inbound-email', express.json({ limit: '200kb' }), inboundAuth, (req, res) => {
+  const from = inbound.parseFrom(req.body?.from);
+  const subject = String(req.body?.subject || '').trim();
+  let text = String(req.body?.text || '').trim();
+  if (!text && req.body?.html) text = inbound.htmlToText(req.body.html);
+  const atts = Array.isArray(req.body?.attachments) ? req.body.attachments : (Array.isArray(req.body?.attachments_meta) ? req.body.attachments_meta : []);
+  const mediaNote = inbound.formatMediaNote((atts || []).map(a => ({ type: a.type || 'file', filename: a.filename || a.name, mime: a.mime || a.content_type, size: a.size })));
+  if (!from) return res.status(400).json({ error: 'from is required' });
+  if (!text && !mediaNote) return res.status(400).json({ error: 'text or attachments required' });
+  const student = inbound.matchStudentByEmail(from);
+  if (!student) {
+    const id = inbound.recordUnmatched({ channel: 'email', sender: from, subject, body: text, raw: { subject, attachment_count: (atts || []).length } });
+    return res.json({ ok: true, matched: false, unmatched_id: id });
+  }
+  const filed = inbound.fileHomework({ student, email: from, source: 'email', text, subject, mediaNote });
+  if (!filed) return res.status(400).json({ error: 'could not file homework' });
+  hw.autoDraft(filed.id).then(ok => ok && persist.schedule('autodraft')).catch(() => {});
+  res.json({ ok: true, matched: true, id: filed.id, needs_assignment: filed.needs_assignment });
+});
 
 app.use(express.urlencoded({ extended: false, limit: '200kb' }));
 app.use(session({ name: 'bbi.sid', secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'), resave: false, saveUninitialized: false,
@@ -167,10 +199,10 @@ app.post('/admin/gradebook/:id', T, (req, res) => { for (const [k, v] of Object.
 
 // Homework review
 const subQ = `SELECT sb.*, s.name student, s.preferred_language, a.title_az, a.instructions_az, a.grade_item_id, c.code, cr.draft_az, cr.final_az, cr.is_sample, cr.drafted_by, cr.points cpoints, cr.approved_at FROM submissions sb JOIN students s ON s.id=sb.student_id JOIN assignments a ON a.id=sb.assignment_id JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id LEFT JOIN corrections cr ON cr.submission_id=sb.id`;
-app.get('/admin/homework', T, (req, res) => res.render('admin/homework', { title: 'Homework review', anytime: hw.all(), builtInAi: hw.llmEnabled(), subs: db.prepare(subQ + ` ORDER BY sb.status='returned', sb.submitted_at DESC`).all() }));
+app.get('/admin/homework', T, (req, res) => res.render('admin/homework', { title: 'Homework review', anytime: hw.all(), builtInAi: hw.llmEnabled(), sourceLabel: inbound.sourceLabel, unmatched: req.session.user.role==='admin' ? inbound.unmatchedCount() : 0, subs: db.prepare(subQ + ` ORDER BY sb.status='returned', sb.submitted_at DESC`).all() }));
 // Anytime homework: Bruce edits + approves the English correction; only then is it translated to Azeri and returned.
 const hwOr404 = (req, res) => { const s = hw.get(req.params.id); if (!s) res.status(404).render('error', { title: 'Not found', msg: 'No such submission.' }); return s; };
-app.get('/admin/homework/anytime/:id', T, (req, res) => { const s = hwOr404(req, res); if (!s) return; res.render('admin/anytime', { title: 'Homework · ' + s.title, s, late, builtInAi: hw.llmEnabled() }); });
+app.get('/admin/homework/anytime/:id', T, (req, res) => { const s = hwOr404(req, res); if (!s) return; res.render('admin/anytime', { title: 'Homework · ' + s.title, s, late, builtInAi: hw.llmEnabled(), sourceLabel: inbound.sourceLabel, assignments: inbound.assignmentsFor(s.student_id) }); });
 
 // Assignments: due date + time (Baku), max points, late policy. Creating one also creates its gradebook item.
 const assignQ = `SELECT a.*, c.code, c.title course, gi.max_points gi_max, (SELECT COUNT(*) FROM hw_submissions h WHERE h.assignment_id=a.id) nsub FROM assignments a JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id LEFT JOIN grade_items gi ON gi.id=a.grade_item_id`;
@@ -222,6 +254,28 @@ app.post('/admin/homework/anytime/:id/unapprove', T, (req, res) => { const s = h
   flash(req, hw.unapprove(s.id) ? 'Approval withdrawn. Nothing will be translated or returned until you approve again.' : 'Cannot withdraw: it was already returned.');
   audit(req, 'homework.anytime.unapprove', { id: s.id }); res.redirect('/admin/homework/anytime/' + s.id); });
 app.post('/admin/homework/anytime/:id/delete', A, (req, res) => { const s = hwOr404(req, res); if (!s) return; hw.remove(s.id); audit(req, 'homework.anytime.delete', { id: s.id }); flash(req, 'Submission deleted.'); res.redirect('/admin/homework'); });
+app.post('/admin/homework/anytime/:id/assignment', T, (req, res) => { const s = hwOr404(req, res); if (!s) return;
+  const a = db.prepare(`SELECT a.*, c.code FROM assignments a JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id WHERE a.id=?`).get(req.body.assignment_id);
+  if (!a) { flash(req, 'Pick an assignment.'); return res.redirect('/admin/homework/anytime/' + s.id); }
+  if (s.student_id && !db.prepare(`SELECT 1 FROM enrollments e JOIN assignments a ON a.section_id=e.section_id WHERE e.student_id=? AND a.id=?`).get(s.student_id, a.id)) {
+    flash(req, 'That assignment is not in this student\'s classes.'); return res.redirect('/admin/homework/anytime/' + s.id); }
+  if (!hw.setAssignment(s.id, a)) flash(req, 'Could not attach the assignment (already returned?).');
+  else { audit(req, 'homework.anytime.assignment', { id: s.id, assignment_id: a.id }); flash(req, 'Assignment attached: ' + a.code + ' · ' + a.title_az + '. Late deduction was recalculated.'); }
+  res.redirect('/admin/homework/anytime/' + s.id); });
+
+app.get('/admin/inbound', A, (req, res) => { const status = ['pending','filed','dismissed','all'].includes(req.query.status) ? req.query.status : 'pending';
+  res.render('admin/inbound', { title: 'Unmatched inbound', status, items: inbound.unmatchedList(status), students: db.prepare(`SELECT id, name FROM students WHERE status='active' ORDER BY name`).all() }); });
+app.post('/admin/inbound/:id/dismiss', A, (req, res) => { inbound.dismissUnmatched(req.params.id); flash(req, 'Dismissed.'); res.redirect('/admin/inbound'); });
+app.post('/admin/inbound/:id/file', A, (req, res) => {
+  const item = inbound.unmatchedGet(req.params.id); if (!item || item.status !== 'pending') { flash(req, 'Already handled.'); return res.redirect('/admin/inbound'); }
+  const st = db.prepare(`SELECT s.*, u.email AS user_email FROM students s LEFT JOIN users u ON u.id=s.user_id WHERE s.id=?`).get(req.body.student_id);
+  if (!st) { flash(req, 'Pick a student.'); return res.redirect('/admin/inbound'); }
+  const filed = inbound.fileHomework({ student: st, email: st.email || st.user_email, source: item.channel === 'whatsapp' ? 'whatsapp' : 'email', text: item.body, subject: item.subject });
+  if (!filed) { flash(req, 'Could not file (empty body?).'); return res.redirect('/admin/inbound'); }
+  inbound.markUnmatchedFiled(item.id, st.id, filed.id);
+  hw.autoDraft(filed.id).then(ok => ok && persist.schedule('autodraft')).catch(() => {});
+  audit(req, 'inbound.file', { id: item.id, hw: filed.id }); flash(req, 'Filed as homework.'); res.redirect('/admin/homework/anytime/' + filed.id); });
+
 app.get('/admin/homework/:id', T, (req, res) => { const sb = db.prepare(subQ + ' WHERE sb.id=?').get(req.params.id); if (!sb) return res.status(404).render('error', { title: 'Not found', msg: 'No such submission.' }); res.render('admin/review', { title: 'Review', sb }); });
 app.post('/admin/homework/:id/draft', T, async (req, res) => { const sb = db.prepare(subQ + ' WHERE sb.id=?').get(req.params.id); if (!sb) return res.sendStatus(404);
   const d = await draftCorrection(sb.body, sb.student);
@@ -241,7 +295,11 @@ app.get('/admin/whatsapp', A, (req, res) => { const status = ['pending', 'applie
   res.render('admin/whatsapp', { title: 'WhatsApp inbox', msgs, status, students: db.prepare(`SELECT id, name FROM students ORDER BY name`).all(), sections: sectionsList(),
     items: db.prepare(`SELECT gi.id, gi.title, c.code FROM grade_items gi JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id`).all(),
     assignments: db.prepare(`SELECT a.id, a.title_az, c.code FROM assignments a JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id`).all(), verifySet: !!VERIFY_TOKEN }); });
-app.post('/admin/whatsapp/test', A, (req, res) => { wa.ingest({ from: req.body.from, name: req.body.name, text: req.body.text }, { demo: true }); flash(req, 'Test message added to the inbox.'); res.redirect('/admin/whatsapp'); });
+app.post('/admin/whatsapp/test', A, (req, res) => { const r = wa.ingest({ from: req.body.from, name: req.body.name, text: req.body.text, media: req.body.media ? [{ type: req.body.media }] : [] }, { demo: true });
+  const n = (r.homework || []).length;
+  flash(req, 'Test message added to the inbox.' + (n ? ' Homework was filed automatically for review.' : ''));
+  for (const h of r.homework || []) hw.autoDraft(h.hwId).then(ok => ok && persist.schedule('autodraft')).catch(() => {});
+  res.redirect('/admin/whatsapp'); });
 app.post('/admin/whatsapp/:id/dismiss', A, (req, res) => { db.prepare(`UPDATE whatsapp_messages SET status='dismissed', handled_by=?, handled_at=CURRENT_TIMESTAMP WHERE id=?`).run(req.session.user.id, req.params.id); flash(req, 'Dismissed.'); res.redirect('/admin/whatsapp'); });
 app.post('/admin/whatsapp/:id/apply', A, (req, res) => {
   const m = db.prepare('SELECT * FROM whatsapp_messages WHERE id=?').get(req.params.id); if (!m || m.status !== 'pending') { flash(req, 'Message already handled.'); return res.redirect('/admin/whatsapp'); }
@@ -253,13 +311,20 @@ app.post('/admin/whatsapp/:id/apply', A, (req, res) => {
         db.prepare('UPDATE whatsapp_messages SET student_id=? WHERE id=?').run(r.lastInsertRowid, m.id); note = 'Applicant created.'; }
       else if (action === 'mark_attendance') { if (!b.student_id || !b.section_id || !ST.includes(b.status)) throw new Error('Pick student, class and status'); markAtt(b.section_id, b.date, b.student_id, b.status, m.body?.slice(0, 200), 'whatsapp'); note = 'Attendance recorded.'; }
       else if (action === 'record_grade') { if (!b.student_id || !b.grade_item_id || b.points === '') throw new Error('Pick student, item and points'); setGrade(b.grade_item_id, b.student_id, Number(b.points), 'via WhatsApp', 'whatsapp'); note = 'Grade recorded.'; }
-      else if (action === 'file_homework') { if (!b.student_id || !b.assignment_id) throw new Error('Pick student and assignment');
-        db.prepare(`INSERT INTO submissions (assignment_id, student_id, body, source) VALUES (?,?,?, 'whatsapp') ON CONFLICT(assignment_id, student_id) DO UPDATE SET body=excluded.body, status='submitted', submitted_at=CURRENT_TIMESTAMP`).run(b.assignment_id, b.student_id, m.body); note = 'Homework filed for review.'; }
+      else if (action === 'file_homework') { if (!b.student_id) throw new Error('Pick a student');
+        const st = db.prepare(`SELECT s.*, u.email AS user_email FROM students s LEFT JOIN users u ON u.id=s.user_id WHERE s.id=?`).get(b.student_id);
+        const asg = b.assignment_id ? db.prepare(`SELECT a.*, c.code FROM assignments a JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id WHERE a.id=?`).get(b.assignment_id) : null;
+        if (!st) throw new Error('Student not found');
+        const filed = inbound.fileHomework({ student: st, email: st.email || st.user_email, source: 'whatsapp', text: m.body, assignmentOverride: asg || undefined, source_ref: 'whatsapp:' + m.id });
+        if (!filed) throw new Error('Nothing to file');
+        note = filed.needs_assignment ? 'Homework filed for review — pick the assignment on the homework page.' : 'Homework filed for review.';
+        req._filedHw = filed.id; }
       else throw new Error('Choose an action');
       if (b.student_id && !m.student_id) db.prepare('UPDATE whatsapp_messages SET student_id=? WHERE id=?').run(b.student_id, m.id);
       db.prepare(`UPDATE whatsapp_messages SET status='applied', suggested_action=?, handled_by=?, handled_at=CURRENT_TIMESTAMP WHERE id=?`).run(action, req.session.user.id, m.id);
     })();
     audit(req, 'whatsapp.apply', { id: m.id, action }); flash(req, note);
+    if (req._filedHw) hw.autoDraft(req._filedHw).then(ok => ok && persist.schedule('autodraft')).catch(() => {});
   } catch (e) { flash(req, 'Not applied: ' + e.message); }
   res.redirect('/admin/whatsapp');
 });

@@ -1,0 +1,10 @@
+{
+  "name": "bbi-inbound-email",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "BBI_INBOUND_URL": "https://bakubibleinstitute.org/api/inbound-email"
+  },
+  "addresses": ["homework@bakubibleinstitute.org"]
+}

@@ -22,10 +22,14 @@ CREATE TABLE IF NOT EXISTS hw_submissions (id INTEGER PRIMARY KEY, assignment_id
   due_at TEXT, max_points REAL, late_policy TEXT, minutes_late INTEGER NOT NULL DEFAULT 0, deduction_pct REAL NOT NULL DEFAULT 0,
   raw_score REAL, deduction_points REAL, final_score REAL, score_overridden INTEGER NOT NULL DEFAULT 0,
   translation_en TEXT, draft_en TEXT, drafted_by TEXT, drafted_at TEXT, final_en TEXT, approved_by TEXT, approved_at TEXT, return_az TEXT, returned_by TEXT, returned_at TEXT,
-  submitted_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
+  submitted_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  source TEXT NOT NULL DEFAULT 'web' CHECK(source IN ('web','whatsapp','email')), media_note TEXT, source_ref TEXT);
 CREATE INDEX IF NOT EXISTS hw_submissions_status ON hw_submissions(status);
 CREATE INDEX IF NOT EXISTS hw_submissions_email ON hw_submissions(student_email);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 -- Email outbox: every email waits here as 'pending' until Bruce approves it on /admin/outbox. Nothing is sent automatically.
 CREATE TABLE IF NOT EXISTS email_outbox (id INTEGER PRIMARY KEY, to_email TEXT NOT NULL, to_name TEXT, subject TEXT NOT NULL, body_text TEXT NOT NULL, kind TEXT, ref TEXT,
   status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sent','failed','discarded')), error TEXT, approved_by TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, sent_at TEXT);
+
+CREATE TABLE IF NOT EXISTS inbound_unmatched (id INTEGER PRIMARY KEY, channel TEXT NOT NULL CHECK(channel IN ('email','whatsapp')), sender TEXT NOT NULL, subject TEXT, body TEXT, received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','filed','dismissed')), student_id INTEGER REFERENCES students(id) ON DELETE SET NULL, hw_submission_id INTEGER REFERENCES hw_submissions(id) ON DELETE SET NULL, raw_json TEXT);
+CREATE INDEX IF NOT EXISTS inbound_unmatched_status ON inbound_unmatched(status);

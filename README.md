@@ -18,7 +18,7 @@ One teacher, **Pastor Bruce Wright** (bruce@baku-bible.example), and two classes
 
 ## Areas
 - `/` public homepage · `/login`
-- Admin: `/admin` dashboard, `/admin/students` roster (flags), `/admin/classes`, `/admin/attendance` (Sentinel flags: >2 unexcused; excused never count), `/admin/gradebook`, `/admin/homework` (Draft Azeri correction → edit → approve), `/admin/whatsapp`, `/admin/bots`, `/admin/report` (+ `.json`)
+- Admin: `/admin` dashboard, `/admin/students` roster (flags), `/admin/classes`, `/admin/attendance` (Sentinel flags: >2 unexcused; excused never count), `/admin/gradebook`, `/admin/homework` (Draft Azeri correction → edit → approve), `/admin/whatsapp`, `/admin/inbound` (unmatched inbound email), `/admin/bots`, `/admin/report` (+ `.json`)
 - Teacher: classes, attendance, grades, homework review
 - Student (Azerbaijani): `/telebe` — dərslər, iştirak, qiymətlər, ev tapşırıqları, müəllim rəyi
 
@@ -31,7 +31,8 @@ Homework Helper: with `OPENAI_API_KEY` it asks an LLM for Azerbaijani feedback; 
 Endpoint: `GET/POST /webhooks/whatsapp`
 - Verify: Meta calls `GET ?hub.mode=subscribe&hub.verify_token=…&hub.challenge=…`; we echo the challenge when the token equals `WHATSAPP_VERIFY_TOKEN`.
 - Inbound: Meta Cloud API `whatsapp_business_account` payloads, or test JSON `{"from":"+99455…","name":"Aysel","text":"…"}`.
-- Each message is stored (number, name, body, time, raw JSON), linked to a student by phone, and given a suggested action (create student / mark attendance / record grade / file homework) that an admin applies or dismisses in `/admin/whatsapp`.
+- Each message is stored (number, name, body, time, raw JSON) and linked to a student by phone. Written homework from a matched active student is filed automatically into the homework review queue (never auto-replied). Other suggested actions (create student / mark attendance / record grade / file homework) wait for an admin to apply or dismiss them in `/admin/whatsapp`.
+- Email homework: `POST /api/inbound-email` (see `docs/INBOUND.md`). Matched student mail is filed the same way; unmatched senders go to `/admin/inbound`. No replies are sent.
 - Security: set `WHATSAPP_APP_SECRET` to verify `X-Hub-Signature-256`. With `DEMO_MODE=false` and no app secret, posts need header `x-bbi-token: <VERIFY_TOKEN>`.
 
 ### Connecting real WhatsApp later

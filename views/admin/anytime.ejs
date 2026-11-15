@@ -1,9 +1,16 @@
 <%- include('../partials/head') %>
 <% const HL={submitted:['Needs translation + draft','amber'],drafted:['Ready for your edit','blue'],approved_by_bruce:['Approved · awaiting Azeri translation','violet'],returned:['Returned to student','green']}; const locked = s.status==='returned'; %>
-<div class="pagehead rise"><div><p class="eyebrow"><a href="/admin/homework">Homework</a> · <%= s.course_code %> · anytime</p><h1><%= s.title %></h1>
-<p class="muted"><%= s.student_name %> · submitted <%= late.fmtBaku(s.submitted_at) %> Baku · language: <%= s.lang %> · <span class="pill <%= HL[s.status][1] %>"><%= HL[s.status][0] %></span></p></div></div>
+<div class="pagehead rise"><div><p class="eyebrow"><a href="/admin/homework">Homework</a> · <%= s.course_code %> · <%= sourceLabel(s.source) %></p><h1><%= s.title %></h1>
+<p class="muted"><%= s.student_name %> · submitted <%= late.fmtBaku(s.submitted_at) %> Baku · language: <%= s.lang %> · arrived by <%= sourceLabel(s.source) %> · <span class="pill <%= HL[s.status][1] %>"><%= HL[s.status][0] %></span><% if (!s.assignment_id) { %> <span class="pill amber">No assignment yet</span><% } %></p></div></div>
 <div class="cols rise d1">
 <section class="card"><h2>Student's homework<% if (s.lang==='az') { %> (Azeri)<% } %></h2><blockquote class="az paper" lang="<%= s.lang %>"><%= s.body %></blockquote>
+<% if (s.media_note) { %><h2>Attachments / media</h2><pre class="small"><%= s.media_note %></pre><% } %>
+<% if (!locked) { %><h2>Assignment</h2>
+<% if (!s.assignment_id) { %><p class="note">This arrived by <%= sourceLabel(s.source) %> without a matched assignment. Please pick one so the due date and late deduction can be applied.</p><% } %>
+<form method="post" action="/admin/homework/anytime/<%= s.id %>/assignment" class="row"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<label>Assignment <select name="assignment_id"><option value="">— pick —</option><% (assignments||[]).forEach(a=>{ %><option value="<%= a.id %>" <%= String(s.assignment_id)===String(a.id)?'selected':'' %>><%= a.code %> · <%= a.title_az %></option><% }) %></select></label>
+<button class="btn sm"><%= s.assignment_id ? 'Change assignment' : 'Attach assignment' %></button></form>
+<% if (!(assignments||[]).length) { %><p class="muted small">No assignments in this student's classes yet. Create one under Assignments first.</p><% } %><% } %>
 <% if (s.lang!=='en') { %><h2>English translation</h2><% if (s.translation_en) { %><blockquote class="paper" lang="en"><%= s.translation_en %></blockquote><% } else { %><p class="muted">Not translated yet. <%= builtInAi ? '' : 'The scheduled assistant will add it.' %></p><% } %><% } %>
 <% if (s.status==='returned') { %><h2>Returned to student (Azeri)</h2><div class="feedback" lang="az"><%= s.return_az %></div><p class="small muted">Returned <%= s.returned_at %> · translated by <%= s.returned_by %></p><% } %>
 </section>

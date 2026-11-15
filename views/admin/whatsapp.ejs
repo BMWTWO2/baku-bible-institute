@@ -1,5 +1,5 @@
 <%- include('../partials/head') %>
-<div class="pagehead rise"><div><h1>WhatsApp inbox</h1><p class="muted">Messages arrive at <code>POST /webhooks/whatsapp</code>. Bots suggest an action — nothing is applied until you click Apply.</p></div>
+<div class="pagehead rise"><div><h1>WhatsApp inbox</h1><p class="muted">Messages arrive at <code>POST /webhooks/whatsapp</code>. Written homework from a matched student is filed automatically for your review (nothing is ever auto-replied). Other suggested actions still wait for you to click Apply.</p></div>
 <div class="tabs"><% ['pending','applied','dismissed','all'].forEach(t=>{ %><a href="?status=<%= t %>" class="<%= status===t?'on':'' %>"><%= t %></a><% }) %></div></div>
 <% if (!verifySet) { %><p class="note rise">WhatsApp is not connected yet (no WHATSAPP_VERIFY_TOKEN). Use “Simulate a message” to test.</p><% } %>
 <div class="list rise d1"><% if (!msgs.length) { %><p class="muted">Nothing here.</p><% } %>

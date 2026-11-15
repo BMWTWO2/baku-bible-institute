@@ -1,0 +1,10 @@
+{
+  "name": "bbi-inbound-email",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cloudflare Email Worker: receive homework@bakubibleinstitute.org and POST it to BBI. Never replies.",
+  "main": "src/index.js",
+  "dependencies": {
+    "postal-mime": "^2.4.4"
+  }
+}

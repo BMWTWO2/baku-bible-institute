@@ -1,0 +1,18 @@
+<%- include('../partials/head') %>
+<div class="pagehead rise"><div><h1>Unmatched inbound</h1><p class="muted">Email sent to <code>homework@bakubibleinstitute.org</code> that did not match a student address is kept here — nothing is discarded, and no reply is sent. WhatsApp from unknown numbers stays in the <a href="/admin/whatsapp">WhatsApp inbox</a>.</p></div>
+<div class="tabs"><% ['pending','filed','dismissed','all'].forEach(t=>{ %><a href="?status=<%= t %>" class="<%= status===t?'on':'' %>"><%= t %></a><% }) %></div></div>
+<div class="list rise d1"><% if (!items.length) { %><p class="muted">Nothing here.</p><% } %>
+<% items.forEach(m=>{ %>
+<article class="card"><div><p class="eyebrow"><%= m.channel %> · <%= m.received_at %></p>
+<h3><%= m.subject || '(no subject)' %></h3>
+<p class="muted small">From <%= m.sender %> · <%= m.status %></p>
+<p class="az clamp"><%= m.body %></p></div>
+<% if (m.status==='pending') { %>
+<form method="post" action="/admin/inbound/<%= m.id %>/file" class="row"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<label>File as homework for <select name="student_id"><option value="">— pick a student —</option><% students.forEach(s=>{ %><option value="<%= s.id %>"><%= s.name %></option><% }) %></select></label>
+<button class="btn sm">File</button></form>
+<form method="post" action="/admin/inbound/<%= m.id %>/dismiss" class="inline"><input type="hidden" name="_csrf" value="<%= csrf %>"><button class="link">Dismiss</button></form>
+<% } else if (m.hw_submission_id) { %><p class="small"><a href="/admin/homework/anytime/<%= m.hw_submission_id %>">Open filed homework</a></p><% } %>
+</article>
+<% }) %></div>
+<%- include('../partials/foot') %>
