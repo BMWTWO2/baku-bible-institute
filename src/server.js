@@ -1,7 +1,7 @@
 const path = require('path'); const crypto = require('crypto');
-const express = require('express'); const session = require('express-session'); const bcrypt = require('bcryptjs');
+const express = require('express'); const bcrypt = require('bcryptjs');
 const db = require('./db'); const wa = require('./whatsapp'); const bots = require('./bots'); const { draftCorrection } = require('./azeri'); const notes = require('./notes');
-const hw = require('./homework'); const outbox = require('./outbox'); const grades = require('./grades'); const late = require('./late'); const persist = require('./persist'); const inbound = require('./inbound');
+const hw = require('./homework'); const outbox = require('./outbox'); const grades = require('./grades'); const late = require('./late'); const persist = require('./persist'); const inbound = require('./inbound'); const sessions = require('./sessions');
 
 const app = express(); const PORT = Number(process.env.PORT || 3050);
 const DEMO = process.env.DEMO_MODE != null ? process.env.DEMO_MODE !== 'false' : process.env.NODE_ENV !== 'production';
@@ -89,15 +89,10 @@ app.post('/api/inbound-email', express.json({ limit: '200kb' }), inboundAuth, (r
   res.json({ ok: true, matched: true, id: filed.id, needs_assignment: filed.needs_assignment });
 });
 
+app.set('demo', DEMO);
 app.use(express.urlencoded({ extended: false, limit: '200kb' }));
-app.use(session({ name: 'bbi.sid', secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'), resave: false, saveUninitialized: false,
-  cookie: { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 1000 * 60 * 60 * 8 } }));
-app.use((req, res, next) => {
-  if (!req.session.csrf) req.session.csrf = crypto.randomBytes(24).toString('hex');
-  if (req.method === 'POST' && req.body?._csrf !== req.session.csrf) return res.status(403).send('Invalid CSRF token. Go back, refresh, and try again.');
-  res.locals.csrf = req.session.csrf; res.locals.user = req.session.user || null; res.locals.demo = DEMO; res.locals.path = req.path;
-  res.locals.flash = req.session.flash; delete req.session.flash; next();
-});
+app.use(sessions.middleware());
+app.use(sessions.csrfGuard);
 const flash = (req, msg) => { req.session.flash = msg; };
 const need = (...roles) => (req, res, next) => { const u = req.session.user; if (!u) return res.redirect('/login?next=' + encodeURIComponent(req.originalUrl)); if (!roles.includes(u.role)) return res.status(403).render('error', { title: 'Not allowed', msg: 'Your account cannot open this page.' }); next(); };
 const audit = (req, action, detail) => db.prepare('INSERT INTO audit_log (user_id, action, detail) VALUES (?,?,?)').run(req.session.user?.id || null, action, JSON.stringify(detail || {}));

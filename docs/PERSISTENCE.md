@@ -25,3 +25,9 @@ next boot removes those accounts, their homework, queued emails and the TEST cla
 
 Production: `DATABASE_URL` points at a separate `bbi` database in the existing free Neon project (1 GB storage and
 100 CU-hours/month shared with that project; scales to zero when idle).
+
+**Sessions:** with `DATABASE_URL` set, signed-in sessions (and their CSRF tokens) are stored in a
+small Postgres table `bbi_sessions`, so a form still works after a Render restart or spin-down.
+Expired rows are pruned about every 6 hours. `SESSION_SECRET` must be set to a stable value;
+if it changes on boot, every existing login cookie stops working. Without `DATABASE_URL`,
+sessions stay in memory and are lost on restart.
