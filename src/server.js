@@ -54,6 +54,8 @@ api.post('/:id/return', (req, res) => { const s = hw.get(req.params.id); if (!s)
   if (!hw.setReturn(s.id, az, String(req.body?.by || 'assistant').slice(0, 60))) return res.status(409).json({ error: 'refused', status: hw.get(s.id)?.status });
   res.json({ ok: true, id: s.id, status: 'returned' }); });
 app.use('/api/homework', api);
+// Read-only helper-bot flags for the scheduled check. Same bearer token. No writes.
+app.get('/api/flags', apiAuth, (_req, res) => res.json(bots.flagsPayload()));
 
 app.use(express.urlencoded({ extended: false, limit: '200kb' }));
 app.use(session({ name: 'bbi.sid', secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'), resave: false, saveUninitialized: false,

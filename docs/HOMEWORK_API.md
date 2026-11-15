@@ -39,3 +39,28 @@ Items carry only the student's first name, never email or phone.
    warm, personal correction in English for Bruce to edit; `POST /:id/draft`.
 2. `GET /needs-azeri`; for each item translate `final_en` faithfully into warm, simple Azerbaijani (Latin
    script), adding nothing; `POST /:id/return`.
+
+## Flags API (scheduled helper-bot check)
+
+Read-only. Auth is the same bearer token as the homework API (`Authorization: Bearer $HOMEWORK_API_TOKEN`).
+`401` without a valid token, `503` if the token is unset. No writes; nothing is changed in the database.
+
+`GET https://bakubibleinstitute.org/api/flags`
+
+Returns every helper bot's current findings (`runAll()`: shepherd, steward, herald, scribe, watchman, sentinel, helper):
+
+```json
+{
+  "checked_at": "2026-11-14T12:00:00.000Z",
+  "bots": {
+    "steward": {
+      "name": "Steward",
+      "watches": "Class capacity: sections at 90%+ or over capacity.",
+      "count": 1,
+      "items": [{ "text": "THG 101 Theology of Grace: 18/20 seats", "link": "https://bakubibleinstitute.org/admin/classes" }]
+    }
+  }
+}
+```
+
+Links are absolute (`https://bakubibleinstitute.org…`). Phone numbers in item text (for example Watchman's duplicate-phone flags) are replaced with `a duplicate number`.

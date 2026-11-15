@@ -36,6 +36,29 @@ const BOTS = [
 ];
 BOTS.push({ key: 'chronicler', name: 'Chronicler', icon: '📖', watches: 'Compiles every bot’s findings into the weekly director’s report.', flow: 'All bots → Chronicler → Weekly report (Bruce)', run: () => [] });
 function runAll() { const res = {}; for (const b of BOTS) if (b.key !== 'chronicler') res[b.key] = b.run(); return res; }
+const SITE = () => (process.env.SITE_URL || 'https://bakubibleinstitute.org').replace(/\/$/, '');
+// Strip phone numbers from flag text so the read-only API never returns them. ISO dates are left alone.
+function redactPhones(text) {
+  return String(text || '')
+    .replace(/Duplicate phone\s+[^:]+:/gi, 'Duplicate phone a duplicate number:')
+    .replace(/\+\d[\d\s().-]{6,}\d/g, 'a duplicate number')
+    .replace(/(?<![-\d])\d(?:[\s().]*\d){6,}(?![-\d])/g, 'a duplicate number');
+}
+function absLink(link) {
+  if (!link) return null;
+  const s = String(link);
+  if (/^https?:\/\//i.test(s)) return s;
+  return SITE() + (s.startsWith('/') ? s : '/' + s);
+}
+function flagsPayload() {
+  const findings = runAll(); const out = {};
+  for (const b of BOTS) {
+    if (b.key === 'chronicler') continue;
+    const items = (findings[b.key] || []).map(it => ({ text: redactPhones(it.text), link: absLink(it.link) }));
+    out[b.key] = { name: b.name, watches: b.watches, count: items.length, items };
+  }
+  return { checked_at: new Date().toISOString(), bots: out };
+}
 function weeklyReport() {
   const f = runAll(); const c = q => db.prepare(q).get().n;
   return { generated: new Date().toISOString(), findings: f,
@@ -43,4 +66,4 @@ function weeklyReport() {
       pendingWhatsApp: c(`SELECT COUNT(*) n FROM whatsapp_messages WHERE status='pending'`), homeworkAwaiting: c(`SELECT COUNT(*) n FROM submissions WHERE status<>'returned'`) + c(`SELECT COUNT(*) n FROM hw_submissions WHERE status<>'returned'`),
       attendanceRate: db.prepare(`SELECT ROUND(100.0*SUM(status IN ('present','late','excused'))/NULLIF(COUNT(*),0)) n FROM attendance`).get().n } };
 }
-module.exports = { BOTS, runAll, weeklyReport, unexcused };
+module.exports = { BOTS, runAll, weeklyReport, unexcused, flagsPayload, redactPhones };
