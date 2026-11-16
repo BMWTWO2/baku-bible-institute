@@ -20,14 +20,14 @@ const child = spawn(process.execPath, ['src/server.js'], { cwd: root, env: { ...
 let out = ''; child.stdout.on('data', d => out += d); child.stderr.on('data', d => out += d);
 const agent = () => { const jar = {}; const ck = () => Object.entries(jar).map(([k, v]) => k + '=' + v).join('; ');
   const req = async (p, o = {}) => { const r = await fetch(BASE + p, { redirect: 'manual', ...o, headers: { cookie: ck(), ...(o.headers || {}) } });
-    for (const c of r.headers.getSetCookie?.() || []) { const [kv] = c.split(';'); const i = kv.indexOf('='); jar[kv.slice(0, i)] = kv.slice(i + 1); } return r; };
+    r.cookies = r.headers.getSetCookie?.() || []; for (const c of r.cookies) { const [kv] = c.split(';'); const i = kv.indexOf('='); jar[kv.slice(0, i)] = kv.slice(i + 1); } return r; };
   const csrf = async p => (await (await req(p)).text()).match(/name="_csrf" value="([^"]+)"/)[1];
   const post = async (p, data, from) => req(p, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ _csrf: await csrf(from || '/login'), ...data }) });
   return { req, post, login: (e, next = '') => post('/login', { email: e, password: PW, next }) }; };
 const step = m => console.log('✓', m);
 try {
   for (let i = 0; ; i++) { try { if ((await fetch(BASE + '/healthz')).ok) break; } catch {} if (i > 80) throw new Error('server did not start: ' + out); await new Promise(r => setTimeout(r, 100)); }
-  const db = new (require('better-sqlite3'))(dbPath);
+  let db = new (require('better-sqlite3'))(dbPath);
   const codes = db.prepare('SELECT * FROM attendance_codes ORDER BY week_no').all();
   assert.equal(codes.length, 5); assert.equal(codes[0].week_no, 1); assert.ok(codes[0].token.length >= 24); assert.equal(new Set(codes.map(c => c.token)).size, 5);
   step('boot made weeks 1–5 codes with unique random tokens');
@@ -35,8 +35,15 @@ try {
 
   const anon = agent(); let r = await anon.req('/qeyd/' + tok); assert.equal(r.status, 302); assert.equal(r.headers.get('location'), '/login?next=' + encodeURIComponent('/qeyd/' + tok));
   assert.equal((await anon.req(base + '.png')).status, 302); step('anonymous scan → sign-in with return path; images need sign-in');
+  r = await anon.req('/login?next=' + encodeURIComponent('/qeyd/' + tok)); let lh = await r.text();
+  assert.match(lh, /Davamiyyət üçün bir dəfə daxil olun\. Telefonunuz yadda saxlanılacaq\./); assert.match(lh, new RegExp('name="next" value="/qeyd/' + tok + '"'));
+  assert.doesNotMatch(await (await anon.req('/login')).text(), /Telefonunuz yadda/); step('login page shows the one-time Azeri note only for a QR return path');
+  const evil = agent(); r = await evil.login('s3@test.invalid', '//evil.example/x'); assert.equal(r.headers.get('location'), '/telebe');
+  r = await evil.login('s3@test.invalid', '/\\evil.example'); assert.equal(r.headers.get('location'), '/telebe'); step('open redirects in next are refused');
 
-  const t = agent(); await t.login('teacher@test.invalid');
+  const t = agent(); r = await t.login('teacher@test.invalid');
+  const staffCk = r.cookies.find(c => c.startsWith('bbi.sid=')); const staffAge = (Date.parse(/Expires=([^;]+)/.exec(staffCk)[1]) - Date.now()) / 3600e3;
+  assert.ok(staffAge > 7.5 && staffAge <= 8.01, 'staff cookie stays 8h, got ' + staffAge); step('staff session cookie unchanged (8 hours)');
   r = await t.req(base); const html = await r.text(); assert.equal(r.status, 200); assert.match(html, /data:image\/png;base64/); assert.match(html, /THG 101/); assert.match(html, /Session 1 of 8/);
   assert.match(html, /Download PNG/); assert.match(html, /Download SVG/); assert.match(html, /Copy image/);
   const png = Buffer.from(await (await t.req(base + '.png?size=1600')).arrayBuffer()); assert.equal(png.subarray(1, 4).toString(), 'PNG'); assert.equal(png.readUInt32BE(16), 1600);
@@ -45,9 +52,15 @@ try {
   step('teacher sees display, print, 1600px PNG and SVG');
 
   const s1 = agent(); r = await s1.login('s1@test.invalid', '/qeyd/' + tok); assert.equal(r.headers.get('location'), '/qeyd/' + tok);
+  const stCk = r.cookies.find(c => c.startsWith('bbi.sid=')); const stAge = (Date.parse(/Expires=([^;]+)/.exec(stCk)[1]) - Date.now()) / 864e5;
+  assert.ok(stAge > 179.9 && stAge <= 180.01, 'student cookie should be 180 days, got ' + stAge); assert.match(stCk, /HttpOnly/i); assert.match(stCk, /SameSite=Lax/i);
+  step('student session cookie lasts 180 days on the phone (HttpOnly, SameSite=Lax)');
   assert.equal((await s1.req(base)).status, 403); assert.equal((await s1.req(base + '.png')).status, 403);
-  r = await s1.req('/qeyd/' + tok); assert.equal(r.status, 200); assert.match(await r.text(), /Davamiyyətiniz qeyd olundu\. Təşəkkür edirik!/);
-  r = await s1.req('/qeyd/' + tok); assert.match(await r.text(), /artıq qeyd olunub/);
+  r = await s1.req('/qeyd/' + tok); assert.equal(r.status, 200); let okh = await r.text();
+  assert.match(okh, /Təşəkkür edirik, Aysel!/); assert.match(okh, /Davamiyyətiniz qeyd olundu\./); assert.match(okh, /Theology of Grace/); assert.match(okh, /Bakı vaxtı/);
+  assert.doesNotMatch(okh, /<form[^>]*action="\/qeyd/); fs.writeFileSync(path.join(os.tmpdir(), 'bbi-qr-success.html'), okh);
+  r = await s1.req('/login?next=' + encodeURIComponent('/qeyd/' + tok)); assert.equal(r.status, 302); assert.equal(r.headers.get('location'), '/qeyd/' + tok);
+  r = await s1.req('/qeyd/' + tok); okh = await r.text(); assert.match(okh, /artıq qeyd olunub/); assert.match(okh, /Təşəkkür edirik, Aysel!/);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM attendance WHERE status='present' AND source='qr'").get().n, 1);
   step('student signs in, returns to check-in, marked present once (idempotent); cannot open teacher pages');
 
@@ -61,10 +74,31 @@ try {
   const s2 = agent(); await s2.login('s2@test.invalid'); r = await s2.req('/qeyd/' + tok); assert.match(await r.text(), /müəllim artıq qeyd edib/);
   assert.equal(db.prepare('SELECT status FROM attendance WHERE student_id=2').get().status, 'excused');
   step('teacher manual mark wins over a later scan; re-saving keeps the QR origin');
+  // No scan = absent: add a student who never scans, end the week, run the hourly close.
+  db.prepare("INSERT INTO students (name,status) VALUES ('Never Scans','active')").run(); db.prepare('INSERT INTO enrollments (student_id,section_id) VALUES (4,1)').run();
+  r = await (await t.req(base + '/roster.json')).json(); assert.deepEqual(r.missing.map(x => x.name), ['Never Scans']);
+  db.close();
+  const cr = spawnSync(process.execPath, ['-e', `process.env.DB_PATH=${JSON.stringify(dbPath)}; const a=require('./src/attqr'); const db=require('./src/db');
+    console.log(JSON.stringify(a.closePastWeeks()));
+    db.prepare("UPDATE attendance_codes SET valid_from=date('now','-10 day'), valid_until=date('now','-4 day') WHERE week_no=1").run();
+    console.log(JSON.stringify(a.closePastWeeks())); console.log(JSON.stringify(a.closePastWeeks()));
+    db.prepare("INSERT INTO students (name,status) VALUES ('Late Joiner','active')").run(); db.prepare('INSERT INTO enrollments (student_id,section_id) VALUES (5,1)').run();
+    console.log(JSON.stringify(a.closePastWeeks()));`], { cwd: root, env: { ...process.env, DATABASE_URL: '' }, encoding: 'utf8' });
+  assert.equal(cr.status, 0, cr.stderr); const outs = cr.stdout.trim().split('\n').map(x => JSON.parse(x));
+  assert.deepEqual(outs[0], { absent: 0, closed: 0 }); assert.equal(outs[1].absent, 1); assert.equal(outs[2].closed, 0); assert.deepEqual(outs[3], { absent: 0, closed: 0 });
+  const db2 = new (require('better-sqlite3'))(dbPath);
+  assert.equal(db2.prepare('SELECT status FROM attendance WHERE student_id=4').get().status, 'absent');
+  assert.equal(db2.prepare('SELECT status FROM attendance WHERE student_id=2').get().status, 'excused');
+  assert.equal(db2.prepare('SELECT COUNT(*) n FROM attendance WHERE student_id=5').get().n, 0);
+  const pts = Object.fromEntries(db2.prepare("SELECT g.student_id, g.points FROM grades g JOIN grade_items gi ON gi.id=g.grade_item_id WHERE gi.kind='attendance'").all().map(x => [x.student_id, x.points]));
+  assert.deepEqual(pts, { 1: 50, 2: 50, 4: 0 });
+  db2.prepare("UPDATE attendance_codes SET valid_from=date('now','-1 day'), valid_until=date('now','+5 day') WHERE week_no=1").run();
+  db2.close(); step('week over: no scan = absent (0 pts) once; excused keeps credit; teacher marks untouched; later enrollee not back-filled');
 
   const s3 = agent(); await s3.login('s3@test.invalid'); r = await s3.req('/qeyd/' + tok); assert.match(await r.text(), /qeydiyyatda deyilsiniz/);
   r = await s1.req('/qeyd/not-a-real-token'); assert.equal(r.status, 404); assert.match(await r.text(), /tanınmadı/);
   r = await s1.req('/qeyd/' + codes[1].token); assert.match(await r.text(), /hələ aktiv deyil/);
+  db = new (require('better-sqlite3'))(dbPath);
   db.prepare("UPDATE attendance_codes SET valid_from='2020-01-06', valid_until='2020-01-12' WHERE week_no=1").run();
   r = await s1.req('/qeyd/' + tok); assert.equal(r.status, 410); assert.match(await r.text(), /vaxtı bitib/);
   step('friendly Azeri errors: not enrolled, unknown, not yet active, expired');

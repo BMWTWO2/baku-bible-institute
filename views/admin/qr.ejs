@@ -26,7 +26,7 @@
     <h3>Not yet scanned</h3><ul class="qr-list miss" data-missing><% r.missing.forEach(x=>{ %><li><%= x.name %></li><% }) %><% if (!r.missing.length) { %><li class="muted">Everyone is in ✓</li><% } %></ul>
     <h3>Scanned</h3><ul class="qr-list ok" data-scanned><% r.scanned.forEach(x=>{ %><li><%= x.name %> <span class="muted"><%= x.time %></span></li><% }) %></ul>
     <h3>Marked by teacher</h3><ul class="qr-list" data-marked><% r.marked.forEach(x=>{ %><li><%= x.name %> <span class="muted"><%= x.status %></span></li><% }) %></ul>
-    <p class="small muted">Refreshes every 5 seconds. A teacher's manual mark is never overwritten by a scan.</p>
+    <p class="small muted">Refreshes every 5 seconds. A teacher's manual mark is never overwritten by a scan. Scanning = present. Anyone still not scanned when this week ends (<%= attqr.fmtEn(code.valid_until) %>, Baku) is marked absent automatically; you can change any mark on the Attendance page.</p>
     <% if (live || today > code.valid_until) { %><form method="post" action="<%= base %>/absent" data-confirm="Mark everyone who has not scanned as absent?"><input type="hidden" name="_csrf" value="<%= csrf %>"><button class="btn sm ghost">After class: mark the rest absent</button></form><% } %>
   </section>
   <section class="card"><details><summary>Code leaked or photographed?</summary><form method="post" action="<%= base %>/rotate"><input type="hidden" name="_csrf" value="<%= csrf %>"><p class="small">Make a new code for this week. The old QR stops working at once; scans already recorded stay.</p><button class="btn sm ghost">Make a new code</button></form></details>

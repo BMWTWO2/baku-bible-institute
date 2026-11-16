@@ -151,6 +151,7 @@ app.post('/api/inbound-email', express.json({ limit: '200kb' }), inboundAuth, (r
 app.set('demo', DEMO);
 app.use(express.urlencoded({ extended: false, limit: '200kb' }));
 app.use(sessions.middleware());
+app.use(sessions.studentPersist);
 app.use(sessions.csrfGuard);
 const flash = (req, msg) => { req.session.flash = msg; };
 const need = (...roles) => (req, res, next) => { const u = req.session.user; if (!u) return res.redirect('/login?next=' + encodeURIComponent(req.originalUrl)); if (!roles.includes(u.role)) return res.status(403).render('error', { title: 'Not allowed', msg: 'Your account cannot open this page.' }); next(); };
@@ -170,16 +171,20 @@ app.post('/enroll', (req, res) => {
   audit(req, 'enrollment.request', { id: r.id, student_id: r.student_id, existing: r.existing, enrolled: r.enrolled, full: r.full });
   res.redirect('/?tesekkur=1#qeydiyyat');
 });
-app.get('/login', (req, res) => res.render('login', { title: 'Sign in', error: null, next: req.query.next || '' }));
+const loginView = (next, error) => ({ title: 'Sign in', error: error || null, next: sessions.localNext(next), qrNote: sessions.isQrNext(next) });
+app.get('/login', (req, res) => { const n = sessions.localNext(req.query.next);
+  // A student who is already signed in (e.g. scanned a QR) goes straight back to where they were headed.
+  if (req.session.user && n) return res.redirect(n);
+  res.render('login', loginView(req.query.next)); });
 const attempts = new Map();
 app.post('/login', (req, res) => {
   const key = req.ip; const a = attempts.get(key) || { n: 0, t: Date.now() }; if (Date.now() - a.t > 15 * 60e3) { a.n = 0; a.t = Date.now(); }
-  if (a.n >= 10) return res.status(429).render('login', { title: 'Sign in', error: 'Too many attempts. Wait 15 minutes.', next: '' });
+  if (a.n >= 10) return res.status(429).render('login', loginView(req.body.next, 'Too many attempts. Wait 15 minutes.'));
   const u = db.prepare('SELECT * FROM users WHERE email=?').get(String(req.body.email || '').trim().toLowerCase());
-  if (!u || !bcrypt.compareSync(String(req.body.password || ''), u.password_hash)) { a.n++; attempts.set(key, a); return res.status(401).render('login', { title: 'Sign in', error: 'Email or password is incorrect.', next: req.body.next || '' }); }
+  if (!u || !bcrypt.compareSync(String(req.body.password || ''), u.password_hash)) { a.n++; attempts.set(key, a); return res.status(401).render('login', loginView(req.body.next, 'Email or password is incorrect.')); }
   attempts.delete(key);
-  req.session.regenerate(() => { req.session.user = { id: u.id, name: u.name, role: u.role, email: u.email }; const n = String(req.body.next || '');
-    res.redirect(n.startsWith('/') && !n.startsWith('//') ? n : u.role === 'student' ? '/telebe' : u.role === 'teacher' ? '/admin/attendance' : '/admin'); });
+  req.session.regenerate(() => { req.session.user = { id: u.id, name: u.name, role: u.role, email: u.email }; sessions.keepStudent(req.session); const n = sessions.localNext(req.body.next);
+    res.redirect(n || (u.role === 'student' ? '/telebe' : u.role === 'teacher' ? '/admin/attendance' : '/admin')); });
 });
 app.post('/logout', (req, res) => req.session.destroy(() => res.redirect('/')));
 
@@ -287,16 +292,19 @@ app.post('/admin/attendance/qr/:sid/week/:week/rotate', T, (req, res) => { const
 app.post('/admin/attendance/qr/:sid/week/:week/absent', T, (req, res) => { const c = qrCtx(req, res); if (!c) return; const n = attqr.markRestAbsent(c.code);
   audit(req, 'attendance.qr_rest_absent', { section: c.sec.id, week: c.code.week_no, n }); flash(req, n + ' student(s) without a scan marked absent. You can still change any mark on the Attendance page.'); res.redirect(qrBase(c.sec.id, c.code.week_no)); });
 // Student scan
-const CHECKIN_MSG = { marked: ['ok', 'Davamiyyətiniz qeyd olundu. Təşəkkür edirik!'], already: ['ok', 'Davamiyyətiniz artıq qeyd olunub. Təşəkkür edirik!'],
+const CHECKIN_MSG = { marked: ['ok', 'Davamiyyətiniz qeyd olundu.'], already: ['ok', 'Davamiyyətiniz artıq qeyd olunub.'],
   teacher_mark: ['ok', 'Bu dərs üçün davamiyyətinizi müəllim artıq qeyd edib. Sualınız varsa, müəllimə yazın.'],
   expired: ['err', 'Bu QR kodun vaxtı bitib. Zəhmət olmasa, bu həftənin yeni kodunu skan edin.'], not_yet: ['err', 'Bu QR kod hələ aktiv deyil. Zəhmət olmasa, dərs həftəsində skan edin.'],
   invalid: ['err', 'Bu QR kod tanınmadı. Zəhmət olmasa, sinifdə göstərilən kodu yenidən skan edin.'], not_enrolled: ['err', 'Siz bu sinifdə qeydiyyatda deyilsiniz. Zəhmət olmasa, müəllimə müraciət edin.'],
   not_student: ['err', 'Bu səhifə tələbələr üçündür. Zəhmət olmasa, tələbə hesabınızla daxil olun.'] };
 app.get('/qeyd/:token', (req, res) => { const u = req.session.user;
-  if (!u) { req.session.flash = 'Davamiyyəti qeyd etmək üçün daxil olun.'; return res.redirect('/login?next=' + encodeURIComponent('/qeyd/' + String(req.params.token).replace(/[^\w-]/g, ''))); }
+  // Not signed in yet: sign in once, then come straight back here and the scan is recorded (no button).
+  if (!u) return res.redirect('/login?next=' + encodeURIComponent('/qeyd/' + String(req.params.token).replace(/[^\w-]/g, '').slice(0, 64)));
   const r = attqr.checkIn(req.params.token, u); if (r.kind === 'marked') { persist.schedule('qr-checkin'); audit(req, 'attendance.qr_checkin', { section: r.code.section_id, week: r.code.week_no }); }
   const [tone, msg] = CHECKIN_MSG[r.kind]; res.status(tone === 'ok' ? 200 : r.kind === 'not_student' ? 403 : 410 - (r.kind === 'invalid' ? 6 : 0));
-  res.render('student/checkin', { title: 'Davamiyyət', lang: 'az', tone, msg, kind: r.kind, code: r.code || null, attqr, name: r.student ? String(r.student.name).split(' ')[0] : '' }); });
+  res.set('Cache-Control', 'no-store');
+  res.render('student/checkin', { title: 'Davamiyyət', lang: 'az', tone, msg, kind: r.kind, code: r.code || null, attqr, when: (r.kind === 'marked' || r.kind === 'already') ? attqr.bakuStamp(r.at) : null,
+    name: r.student ? String(r.student.name).split(' ')[0] : '' }); });
 
 // Gradebook
 app.get('/admin/gradebook', T, (req, res) => res.render('admin/gradebook', { title: 'Gradebook', sections: sectionsList(), items: db.prepare(`SELECT gi.*, c.code, sec.id sid, (SELECT a.id FROM assignments a WHERE a.grade_item_id=gi.id) assignment_id, (SELECT COUNT(*) FROM grades g WHERE g.grade_item_id=gi.id AND g.points IS NOT NULL) graded, (SELECT COUNT(*) FROM enrollments e WHERE e.section_id=gi.section_id) n FROM grade_items gi JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id ORDER BY gi.due_date`).all() }));
@@ -627,7 +635,10 @@ if (require.main === module) {
   }
   // QR attendance: make sure this week's (and the next 4 weeks') check-in codes exist; re-check hourly so a new week's code appears on time.
   const topUp = () => { try { if (attqr.ensureWindow()) persist.schedule('qr-codes'); } catch (e) { console.error('QR codes:', e.message); } };
-  topUp(); setInterval(topUp, 60 * 60e3).unref();
+  // No scan = absent: once a class week is over, anyone enrolled with no mark for a session that was held gets 'absent'
+  // (a teacher can still change it to excused/present on the Attendance page). Runs at boot and hourly.
+  const close = () => { try { const r = attqr.closePastWeeks(); if (r.closed) persist.schedule('qr-absent'); if (r.absent) console.log('QR: week closed; ' + r.absent + ' no-scan absence(s) recorded.'); } catch (e) { console.error('QR close:', e.message); } };
+  topUp(); close(); setInterval(() => { topUp(); close(); }, 60 * 60e3).unref();
   app.listen(PORT, () => console.log(`Baku Bible Institute on http://localhost:${PORT} (demo=${DEMO})`));
 }
 module.exports = app;

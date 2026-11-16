@@ -15,6 +15,7 @@ const CREDIT = ['present', 'late', 'excused'];                   // statuses tha
 db.exec(`CREATE TABLE IF NOT EXISTS attendance_codes (id INTEGER PRIMARY KEY, section_id INTEGER NOT NULL REFERENCES sections(id) ON DELETE CASCADE,
   week_no INTEGER NOT NULL, token TEXT UNIQUE NOT NULL, valid_from TEXT NOT NULL, valid_until TEXT NOT NULL,
   session_id INTEGER REFERENCES class_sessions(id) ON DELETE SET NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(section_id, week_no))`);
+if (!db.prepare(`PRAGMA table_info(attendance_codes)`).all().some(x => x.name === 'closed_at')) db.exec(`ALTER TABLE attendance_codes ADD COLUMN closed_at TEXT`);
 if (!db.prepare(`PRAGMA table_info(grade_items)`).all().some(x => x.name === 'kind')) db.exec(`ALTER TABLE grade_items ADD COLUMN kind TEXT`);
 
 // ---- Baku-time dates (YYYY-MM-DD strings) ----
@@ -23,6 +24,9 @@ const addDays = (d, n) => new Date(Date.parse(d + 'T00:00:00Z') + n * 864e5).toI
 const mondayOf = d => { const wd = new Date(d + 'T00:00:00Z').getUTCDay(); return addDays(d, -((wd + 6) % 7)); };
 const AZ_MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avqust', 'sentyabr', 'oktyabr', 'noyabr', 'dekabr'];
 const fmtAz = d => { const [y, m, dd] = d.split('-').map(Number); return `${dd} ${AZ_MONTHS[m - 1]} ${y}`; };
+// "19 noyabr 2026, 18:42" in Baku time. `at` = SQLite UTC 'YYYY-MM-DD HH:MM:SS' (or empty for now).
+const bakuStamp = at => { const t = at ? Date.parse(String(at).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(at) ? '' : 'Z')) : Date.now();
+  const iso = new Date((isNaN(t) ? Date.now() : t) + BAKU_MS).toISOString(); return `${fmtAz(iso.slice(0, 10))}, ${iso.slice(11, 16)}`; };
 const fmtEn = d => new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 
 const meta = k => db.prepare('SELECT value FROM meta WHERE key=?').get(k)?.value;
@@ -100,16 +104,30 @@ function ensureGradeItem(sectionId) {
   if (!it) { const id = db.prepare(`INSERT INTO grade_items (section_id, title, max_points, weight, kind) VALUES (?, 'Davamiyyət · Attendance', ?, 1, 'attendance')`).run(sectionId, POINTS).lastInsertRowid; it = db.prepare('SELECT * FROM grade_items WHERE id=?').get(id); }
   return it;
 }
+// Score = POINTS × (sessions credited ÷ sessions with a mark for that student), max SESSIONS sessions.
+// "No scan = absent" is written as real 'absent' rows when a week closes (closePastWeeks), so this week's
+// class never counts against anyone until its week is over, and a student who joins later is not
+// charged for weeks before they enrolled. Present, late and excused earn credit; absent earns 0.
 function recomputeGrades(sectionId) {
   const it = ensureGradeItem(sectionId);
-  const held = Math.min(SESSIONS, db.prepare(`SELECT COUNT(DISTINCT cs.id) n FROM class_sessions cs JOIN attendance a ON a.session_id=cs.id WHERE cs.section_id=?`).get(sectionId).n);
-  if (!held) return 0;
-  const rows = db.prepare(`SELECT a.student_id, SUM(a.status IN ('present','late','excused')) credit FROM attendance a JOIN class_sessions cs ON cs.id=a.session_id
+  const rows = db.prepare(`SELECT a.student_id, COUNT(*) marked, SUM(a.status IN ('present','late','excused')) credit FROM attendance a JOIN class_sessions cs ON cs.id=a.session_id
     JOIN enrollments e ON e.student_id=a.student_id AND e.section_id=cs.section_id WHERE cs.section_id=? GROUP BY a.student_id`).all(sectionId);
+  if (!rows.length) return 0;
   const up = db.prepare(`INSERT INTO grades (grade_item_id, student_id, points, source) VALUES (?,?,?, 'attendance')
     ON CONFLICT(grade_item_id, student_id) DO UPDATE SET points=excluded.points, updated_at=CURRENT_TIMESTAMP WHERE grades.source<>'manual'`);
-  let n = 0; for (const r of rows) n += up.run(it.id, r.student_id, Math.round(100 * it.max_points * Math.min(r.credit, held) / held) / 100).changes;
+  let n = 0; for (const r of rows) { const d = Math.min(SESSIONS, r.marked); n += up.run(it.id, r.student_id, Math.round(100 * it.max_points * Math.min(r.credit, d) / d) / 100).changes; }
   return n;
+}
+// No scan = absent. Once a code's Baku week is over, each enrolled student with no mark for that session gets 'absent'
+// (source 'manual', note 'No QR scan') — only if the class was held (at least one mark). Returns { absent, closed }. Each code is closed once
+// (closed_at), so later enrollees are never back-filled. INSERT OR IGNORE: scans and teacher marks are never changed.
+function closePastWeeks() {
+  const today = bakuDate(); let n = 0, closed = 0;
+  for (const c of db.prepare(`SELECT * FROM attendance_codes WHERE closed_at IS NULL AND valid_until < ?`).all(today)) {
+    if (c.session_id && db.prepare('SELECT 1 FROM attendance WHERE session_id=? LIMIT 1').get(c.session_id)) n += markRestAbsent(c);
+    closed += db.prepare('UPDATE attendance_codes SET closed_at=CURRENT_TIMESTAMP WHERE id=?').run(c.id).changes;
+  }
+  return { absent: n, closed };
 }
 const isAttendanceItem = id => db.prepare(`SELECT 1 FROM grade_items WHERE id=? AND kind='attendance'`).get(id);
 
@@ -119,5 +137,5 @@ const png = (url, size = 1200) => QRCode.toBuffer(url, { ...QR_OPTS, type: 'png'
 const svg = url => QRCode.toString(url, { ...QR_OPTS, type: 'svg' });
 const dataUrl = (url, size = 900) => QRCode.toDataURL(url, { ...QR_OPTS, width: size });
 
-module.exports = { SESSIONS, POINTS, WINDOW, CREDIT, bakuDate, fmtAz, fmtEn, termStart, setMeta, mondayOf, weekOf, weekRange, sections, ensureWindow, getCode, byToken, isLive, rotate, window,
+module.exports = { bakuStamp, closePastWeeks, SESSIONS, POINTS, WINDOW, CREDIT, bakuDate, fmtAz, fmtEn, termStart, setMeta, mondayOf, weekOf, weekRange, sections, ensureWindow, getCode, byToken, isLive, rotate, window,
   sessionFor, checkIn, roster, markRestAbsent, ensureGradeItem, recomputeGrades, isAttendanceItem, png, svg, dataUrl };

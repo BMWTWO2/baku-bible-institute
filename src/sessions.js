@@ -5,7 +5,8 @@ const crypto = require('crypto');
 const session = require('express-session');
 
 const URL_ = process.env.DATABASE_URL || '';
-const COOKIE_MS = 1000 * 60 * 60 * 8;
+const COOKIE_MS = 1000 * 60 * 60 * 8;                 // staff (admin/teacher): unchanged
+const STUDENT_MS = 1000 * 60 * 60 * 24 * 180;         // students: stay signed in on their phone for 180 days (rolling)
 const prune = (e) => String(e && e.message || e).replace(/postgres(ql)?:\/\/\S+/gi, '[db-url]');
 
 function secret() {
@@ -48,6 +49,28 @@ function middleware() {
   });
 }
 
+// Students stay signed in on their own phone so a QR scan records attendance instantly.
+// Called right after login and on every request: sets the 180-day lifetime and, at most once a day,
+// marks the session changed so express-session re-sends the cookie with a fresh 180-day expiry
+// (and connect-pg-simple moves bbi_sessions.expire forward; it uses cookie.expires).
+function keepStudent(sess) {
+  if (!sess || !sess.user || sess.user.role !== 'student') return false;
+  const day = new Date().toISOString().slice(0, 10);
+  if (sess.cookie.originalMaxAge !== STUDENT_MS || sess.keptOn !== day) {
+    sess.cookie.originalMaxAge = STUDENT_MS; sess.cookie.maxAge = STUDENT_MS; sess.keptOn = day; return true;
+  }
+  return false;
+}
+const studentPersist = (req, _res, next) => { keepStudent(req.session); next(); };
+
+// A post-login return path: local only (no //host, no backslashes, no scheme), never back to /login or /logout.
+function localNext(n) {
+  n = String(n || '');
+  if (!n.startsWith('/') || n.startsWith('//') || /[\\\s]/.test(n) || /^\/(login|logout)\b/.test(n)) return '';
+  return n;
+}
+const isQrNext = n => /^\/qeyd\/[\w-]{1,64}$/.test(localNext(n));
+
 function safeNext(req) {
   let p = '';
   const ref = req.get('referer');
@@ -86,4 +109,4 @@ function csrfGuard(req, res, next) {
   next();
 }
 
-module.exports = { middleware, csrfGuard, safeNext, secret, COOKIE_MS };
+module.exports = { middleware, csrfGuard, safeNext, secret, COOKIE_MS, STUDENT_MS, keepStudent, studentPersist, localNext, isQrNext };
