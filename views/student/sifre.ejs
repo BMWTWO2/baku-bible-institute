@@ -1,0 +1,8 @@
+<%- include('../partials/head') %>
+<div class="pagehead rise"><h1>Şifrəni dəyiş</h1></div>
+<form method="post" class="card formgrid rise d1" style="max-width:520px"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<label class="span">İndiki şifrə<input type="password" name="current_password" autocomplete="current-password" required></label>
+<label class="span">Yeni şifrə (ən azı 12 simvol)<input type="password" name="new_password" autocomplete="new-password" minlength="12" required></label>
+<label class="span">Yeni şifrəni təkrar yazın<input type="password" name="confirm_password" autocomplete="new-password" minlength="12" required></label>
+<div class="span"><button class="btn gold">Şifrəni dəyiş</button></div></form>
+<%- include('../partials/foot') %>

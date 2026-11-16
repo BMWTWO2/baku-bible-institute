@@ -20,7 +20,7 @@ One teacher, **Pastor Bruce Wright** (bruce@baku-bible.example), and two classes
 - `/` public homepage · `/login`
 - Admin: `/admin` dashboard, `/admin/students` roster (flags), `/admin/classes`, `/admin/attendance` (Sentinel flags: >2 unexcused; excused never count), `/admin/gradebook`, `/admin/homework` (Draft Azeri correction → edit → approve), `/admin/whatsapp`, `/admin/inbound` (unmatched inbound email), `/admin/bots`, `/admin/report` (+ `.json`)
 - Teacher: classes, attendance, grades, homework review
-- Student (Azerbaijani): `/telebe` — dərslər, iştirak, qiymətlər, ev tapşırıqları, müəllim rəyi
+- Student (Azerbaijani): `/telebe` — dərslər, iştirak, qiymətlər, ev tapşırıqları, müəllim rəyi; `/telebe/sifre` — şifrəni dəyiş
 
 ## Bots
 Shepherd (at-risk: attendance <75% or avg <70%), Steward (sections ≥90% full), Herald (WhatsApp pending > HERALD_HOURS, applicants), Scribe (missing grades past due), Watchman (data integrity), Sentinel (>2 unexcused absences per class), Homework Helper (Azeri drafts for professor approval), Chronicler (weekly report). Bots only suggest; admins apply.

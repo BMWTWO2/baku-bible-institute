@@ -555,6 +555,11 @@ app.get('/admin/report.json', A, (req, res) => res.json(bots.weeklyReport()));
 // Student portal (Azerbaijani)
 const S = need('student');
 const me = req => db.prepare('SELECT * FROM students WHERE user_id=?').get(req.session.user.id);
+app.get('/telebe/sifre', S, (req, res) => res.render('student/sifre', { title: 'Şifrə', lang: 'az' }));
+app.post('/telebe/sifre', S, (req, res) => { const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.session.user.id); const n = String(req.body.new_password || '');
+  if (!u || !bcrypt.compareSync(String(req.body.current_password || ''), u.password_hash)) { flash(req, 'İndiki şifrə düzgün deyil. Zəhmət olmasa, yenidən yoxlayın.'); return res.redirect('/telebe/sifre'); }
+  if (n.length < 12 || n !== String(req.body.confirm_password || '')) { flash(req, 'Yeni şifrə ən azı 12 simvol olmalıdır və hər iki yerdə eyni yazılmalıdır.'); return res.redirect('/telebe/sifre'); }
+  db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(bcrypt.hashSync(n, 10), u.id); audit(req, 'password.change', { via: 'telebe' }); flash(req, 'Şifrəniz dəyişdirildi. İndi yeni şifrənizlə daxil ola bilərsiniz.'); res.redirect('/telebe/sifre'); });
 app.get('/telebe', S, (req, res) => { const s = me(req); if (!s) return res.render('error', { title: 'Xəta', msg: 'Tələbə profili tapılmadı.' });
   res.render('student/home', { title: 'Tələbə kabineti', s, lang: 'az',
     classes: db.prepare(`SELECT c.code, c.title_az, sec.schedule, sec.room, t.name teacher FROM enrollments e JOIN sections sec ON sec.id=e.section_id JOIN courses c ON c.id=sec.course_id LEFT JOIN teachers t ON t.id=sec.teacher_id WHERE e.student_id=?`).all(s.id),
