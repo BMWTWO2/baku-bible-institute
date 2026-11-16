@@ -1,5 +1,5 @@
 <%- include('../partials/head') %>
-<div class="pagehead rise"><h1>Attendance</h1></div>
+<div class="pagehead rise"><h1>Attendance</h1><a class="btn gold" href="/admin/attendance/qr">QR check-in codes</a></div>
 <section class="card flags rise d1"><h2>🛡️ Sentinel flags — more than 2 unexcused absences</h2>
 <% if (!flags.length) { %><p class="muted">No students flagged.</p><% } %>
 <div class="flaggrid"><% flags.forEach(f=>{ %><a class="flag" href="/admin/students/<%= f.id %>"><b><%= f.name %></b><span><%= f.n %> unexcused · <%= f.code %></span></a><% }) %></div>

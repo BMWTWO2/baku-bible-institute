@@ -1,0 +1,14 @@
+<%- include('../partials/head') %>
+<div class="pagehead rise"><div><p class="eyebrow"><a href="/admin/attendance">Attendance</a></p><h1>QR check-in</h1>
+<p class="muted">Today in Baku: <b><%= attqr.fmtEn(today) %></b> · Week 1 began Monday <%= attqr.fmtEn(term) %> · This is <b>week <%= week %></b> of <%= attqr.SESSIONS %>.</p></div></div>
+<section class="card rise d1"><p>Each class gets a fresh QR code every week (Monday–Sunday, Baku time). The next <%= attqr.WINDOW %> weeks are always ready, so you can print ahead. A code works only during its own week; when the week ends it stops working and the next week's code takes over. Week <i>k</i> is attendance session <i>k</i> of <%= attqr.SESSIONS %> in the gradebook's <%= attqr.POINTS %>-point <b>Davamiyyət · Attendance</b> item.</p></section>
+<% classes.forEach(c=>{ %><section class="card rise d2"><h2><%= c.code %> · <%= c.title %><% if (c.code==='TEST 000') { %> <span class="pill">test class</span><% } %></h2>
+<% if (!c.codes.length) { %><p class="muted">No codes left: all <%= attqr.SESSIONS %> weekly sessions are finished.</p><% } else { %>
+<table class="tbl"><thead><tr><th>Week / session</th><th>Valid (Baku time)</th><th>Status</th><th>Open</th></tr></thead><tbody>
+<% c.codes.forEach(k=>{ const b=qrBase(c.id,k.week_no); %><tr><td>Week <%= k.week_no %> · session <%= k.week_no %>/<%= attqr.SESSIONS %></td><td><%= attqr.fmtEn(k.valid_from) %> – <%= attqr.fmtEn(k.valid_until) %></td>
+<td><% if (k.live) { %><span class="pill green">active now</span><% } else if (k.past) { %><span class="pill">expired</span><% } else { %><span class="pill blue">upcoming</span><% } %></td>
+<td><a class="btn sm" href="<%= b %>">Display</a> <a class="btn sm ghost" href="<%= b %>/print">Print</a> <a href="<%= b %>.png?size=1600&download=1">PNG</a> · <a href="<%= b %>.svg?download=1">SVG</a></td></tr><% }) %></tbody></table><% } %></section><% }) %>
+<section class="card rise d3"><h2>Term calendar</h2><form method="post" action="/admin/attendance/qr/term" class="row"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<label>Week 1 starts (any day; the Monday of that week is used)<input type="date" name="term_start" value="<%= term %>"></label><button class="btn sm">Save</button></form>
+<p class="small muted">Changing this rebuilds codes that have not been used yet; codes already used keep their dates and scans.</p></section>
+<%- include('../partials/foot') %>

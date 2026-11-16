@@ -1,0 +1,35 @@
+<%- include('../partials/head') %>
+<div class="qr-wrap" data-roster="<%= base %>/roster.json">
+<section class="qr-stage card">
+  <p class="eyebrow">Baku Bible Institute · Davamiyyət</p>
+  <h1 class="qr-title"><%= sec.code %> · <%= sec.title %></h1>
+  <p class="qr-sub">Həftə <%= code.week_no %> · Dərs <%= code.week_no %>/<%= attqr.SESSIONS %> &nbsp;·&nbsp; Week <%= code.week_no %> · Session <%= code.week_no %> of <%= attqr.SESSIONS %></p>
+  <img class="qr-img" id="qrimg" src="<%= qr %>" alt="QR check-in code for <%= sec.code %> week <%= code.week_no %>" width="900" height="900">
+  <p class="qr-date"><%= attqr.fmtAz(code.valid_from) %> – <%= attqr.fmtAz(code.valid_until) %> (Bakı vaxtı)</p>
+  <p class="qr-help">Telefonunuzun kamerası ilə skan edin və daxil olun. · Scan with your phone camera and sign in.</p>
+  <% if (live) { %><span class="pill green">Active now · today <%= attqr.fmtEn(today) %>, Baku time</span><% } else if (today > code.valid_until) { %><span class="pill red">Expired — this code no longer works</span><% } else { %><span class="pill blue">Upcoming — starts <%= attqr.fmtEn(code.valid_from) %></span><% } %>
+</section>
+<aside class="qr-side">
+  <section class="card qr-tools"><h2>Share &amp; print</h2>
+    <div class="qr-btns">
+      <button class="btn sm" type="button" data-fullscreen>Full screen</button>
+      <a class="btn sm ghost" href="<%= base %>/print">Print view</a>
+      <a class="btn sm ghost" href="<%= base %>.png?size=1600&amp;download=1">Download PNG</a>
+      <a class="btn sm ghost" href="<%= base %>.svg?download=1">Download SVG</a>
+      <button class="btn sm ghost" type="button" data-copy="<%= base %>.png?size=1200">Copy image</button>
+    </div>
+    <p class="small muted" data-copy-msg>If your browser blocks copying, right-click the QR code and choose “Copy image”.</p>
+    <p class="small muted">PNG: 1600 px (add <code>?size=4096</code> for larger), black on white, high error correction, wide quiet zone.</p>
+  </section>
+  <section class="card qr-live"><h2>Live roster <span class="small muted" data-updated></span></h2>
+    <p class="qr-count"><b data-n-scanned><%= r.scanned.length + r.marked.length %></b> / <span data-n-total><%= r.total %></span> recorded</p>
+    <h3>Not yet scanned</h3><ul class="qr-list miss" data-missing><% r.missing.forEach(x=>{ %><li><%= x.name %></li><% }) %><% if (!r.missing.length) { %><li class="muted">Everyone is in ✓</li><% } %></ul>
+    <h3>Scanned</h3><ul class="qr-list ok" data-scanned><% r.scanned.forEach(x=>{ %><li><%= x.name %> <span class="muted"><%= x.time %></span></li><% }) %></ul>
+    <h3>Marked by teacher</h3><ul class="qr-list" data-marked><% r.marked.forEach(x=>{ %><li><%= x.name %> <span class="muted"><%= x.status %></span></li><% }) %></ul>
+    <p class="small muted">Refreshes every 5 seconds. A teacher's manual mark is never overwritten by a scan.</p>
+    <% if (live || today > code.valid_until) { %><form method="post" action="<%= base %>/absent" data-confirm="Mark everyone who has not scanned as absent?"><input type="hidden" name="_csrf" value="<%= csrf %>"><button class="btn sm ghost">After class: mark the rest absent</button></form><% } %>
+  </section>
+  <section class="card"><details><summary>Code leaked or photographed?</summary><form method="post" action="<%= base %>/rotate"><input type="hidden" name="_csrf" value="<%= csrf %>"><p class="small">Make a new code for this week. The old QR stops working at once; scans already recorded stay.</p><button class="btn sm ghost">Make a new code</button></form></details>
+  <p class="small"><a href="/admin/attendance/qr">← All classes and weeks</a> · <a href="/admin/attendance?section=<%= sec.id %>&amp;date=<%= today %>">Attendance page</a></p></section>
+</aside></div>
+<%- include('../partials/foot') %>

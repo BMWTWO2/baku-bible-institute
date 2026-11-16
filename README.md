@@ -56,3 +56,12 @@ is sent only when Bruce clicks Send / Send all, and only if `EMAIL_SENDING_ENABL
 
 ## Persistence
 SQLite lives in `data/`; on Render's free tier the disk is wiped on every restart. Set `DATABASE_URL` (Postgres) to turn on durable snapshots of the whole database — see `docs/PERSISTENCE.md`.
+
+## QR attendance check-in
+Teachers/admins open **Attendance → QR check-in codes** (`/admin/attendance/qr`). Each class gets one fresh random code per Baku week
+(Mon–Sun, UTC+4); week *k* = attendance session *k* of 8. Codes for this week and the next 4 always exist (a rolling 5-week window);
+a code only works during its own week. Display: `/admin/attendance/qr/<section>/week/<k>` (projectable, live roster),
+`…/print`, `….png?size=1600&download=1`, `….svg?download=1`. Students scan → `/qeyd/<token>` → sign in → marked present
+(idempotent; a teacher's manual mark always wins). Each class has a 50-point **Davamiyyət · Attendance** grade item:
+50 × (present + late + excused) ÷ sessions held (max 8). Hand-typed scores in that item are never overwritten. See `src/attqr.js`.
+Read-only bot API: `GET /api/attendance` and `/api/attendance/qr/<section>/week/<k>.png` (Bearer HOMEWORK_API_TOKEN).

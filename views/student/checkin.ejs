@@ -1,0 +1,9 @@
+<%- include('../partials/head', { lang: 'az' }) %>
+<section class="card center rise checkin <%= tone %>">
+<div class="checkin-icon"><%= tone==='ok' ? '✓' : '!' %></div>
+<h1><%= tone==='ok' ? (name ? 'Sağ olun, ' + name + '!' : 'Sağ olun!') : 'Qeyd olunmadı' %></h1>
+<p class="checkin-msg"><%= msg %></p>
+<% if (code) { %><p class="muted"><%= code.code %> · <%= code.title_az || code.title %> · Həftə <%= code.week_no %> (<%= attqr.fmtAz(code.valid_from) %> – <%= attqr.fmtAz(code.valid_until) %>)</p><% } %>
+<p class="small muted">Allah sizi xeyir-dua versin.</p>
+<a class="btn" href="/telebe">Kabinetə keç</a></section>
+<%- include('../partials/foot') %>

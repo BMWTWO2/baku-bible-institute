@@ -1,7 +1,7 @@
 const path = require('path'); const crypto = require('crypto');
 const express = require('express'); const bcrypt = require('bcryptjs');
 const db = require('./db'); const wa = require('./whatsapp'); const bots = require('./bots'); const { draftCorrection } = require('./azeri'); const notes = require('./notes');
-const hw = require('./homework'); const outbox = require('./outbox'); const grades = require('./grades'); const late = require('./late'); const persist = require('./persist'); const inbound = require('./inbound'); const sessions = require('./sessions');
+const hw = require('./homework'); const outbox = require('./outbox'); const grades = require('./grades'); const late = require('./late'); const persist = require('./persist'); const inbound = require('./inbound'); const sessions = require('./sessions'); const attqr = require('./attqr');
 
 const app = express(); const PORT = Number(process.env.PORT || 3050);
 const DEMO = process.env.DEMO_MODE != null ? process.env.DEMO_MODE !== 'false' : process.env.NODE_ENV !== 'production';
@@ -61,6 +61,13 @@ api.post('/:id/return', (req, res) => { const s = hw.get(req.params.id); if (!s)
 app.use('/api/homework', api);
 // Read-only helper-bot flags for the scheduled check. Same bearer token. No writes.
 app.get('/api/flags', apiAuth, (_req, res) => res.json(bots.flagsPayload()));
+// Read-only QR attendance status for helper bots / checks (same bearer token). Opening it also tops up the weekly code window.
+app.get('/api/attendance', apiAuth, (req, res) => { if (attqr.ensureWindow()) persist.schedule('qr-codes'); const base = PUBLIC_URL() || `${req.protocol}://${req.get('host')}`;
+  res.json({ term_start: attqr.termStart(), today_baku: attqr.bakuDate(), current_week: attqr.weekOf(), sessions: attqr.SESSIONS, points: attqr.POINTS,
+    classes: attqr.sections().map(s => ({ section_id: s.id, code: s.code, title: s.title, weeks: attqr.window(s.id).map(c => { const r = attqr.roster(c);
+      return { week: c.week_no, valid_from: c.valid_from, valid_until: c.valid_until, live: attqr.isLive(c), display: base + qrBase(s.id, c.week_no), scanned: r.scanned.map(x => x.name), missing: r.missing.map(x => x.name), marked: r.marked.map(x => ({ name: x.name, status: x.status })) }; }) })) }); });
+app.get('/api/attendance/qr/:sid/week/:week.png', apiAuth, async (req, res) => { const c = attqr.getCode(Number(req.params.sid), Number(req.params.week)); if (!c) return res.status(404).json({ error: 'no such code' });
+  res.set('Cache-Control', 'no-store').type('png').send(await attqr.png(scanUrl(req, c), req.query.size || 1200)); });
 
 // Inbound homework email (Cloudflare Email Worker posts here). Never sends a reply.
 const INBOUND_TOKEN = () => process.env.INBOUND_EMAIL_TOKEN || '';
@@ -153,12 +160,65 @@ app.get('/admin/attendance', T, (req, res) => {
 const markAtt = (section_id, date, student_id, status, note, source) => {
   db.prepare('INSERT OR IGNORE INTO class_sessions (section_id, session_date) VALUES (?,?)').run(section_id, date);
   const ses = db.prepare('SELECT id FROM class_sessions WHERE section_id=? AND session_date=?').get(section_id, date);
-  db.prepare(`INSERT INTO attendance (session_id, student_id, status, note, source) VALUES (?,?,?,?,?) ON CONFLICT(session_id, student_id) DO UPDATE SET status=excluded.status, note=excluded.note, source=excluded.source, recorded_at=CURRENT_TIMESTAMP`).run(ses.id, student_id, status, note || null, source);
+  // Re-saving an unchanged mark keeps its origin (e.g. a QR check-in stays 'qr'); a changed mark takes the new source.
+  db.prepare(`INSERT INTO attendance (session_id, student_id, status, note, source) VALUES (?,?,?,?,?) ON CONFLICT(session_id, student_id) DO UPDATE SET
+    note=CASE WHEN attendance.status=excluded.status THEN COALESCE(excluded.note, attendance.note) ELSE excluded.note END,
+    source=CASE WHEN attendance.status=excluded.status THEN attendance.source ELSE excluded.source END,
+    recorded_at=CASE WHEN attendance.status=excluded.status THEN attendance.recorded_at ELSE CURRENT_TIMESTAMP END, status=excluded.status`).run(ses.id, student_id, status, note || null, source);
+  attqr.recomputeGrades(Number(section_id));
 };
 const ST = ['present', 'late', 'absent', 'excused'];
 app.post('/admin/attendance', T, (req, res) => { const { section_id, date } = req.body;
   for (const [k, v] of Object.entries(req.body)) if (k.startsWith('s_') && ST.includes(v)) markAtt(section_id, date, Number(k.slice(2)), v, null, 'manual');
   audit(req, 'attendance.mark', { section_id, date }); flash(req, 'Attendance saved.'); res.redirect(`/admin/attendance?section=${section_id}&date=${date}`); });
+
+// QR attendance (src/attqr.js). Display/print/images: teachers + admins. Scan: /qeyd/<token> (students, own session only).
+const PUBLIC_URL = () => process.env.PUBLIC_URL || (process.env.NODE_ENV === 'production' ? 'https://bakubibleinstitute.org' : '');
+const scanUrl = (req, code) => (PUBLIC_URL() || `${req.protocol}://${req.get('host')}`) + '/qeyd/' + code.token;
+const qrCtx = (req, res) => { const sid = Number(req.params.sid), week = Number(String(req.params.week).replace(/\D.*$/, ''));
+  if (attqr.ensureWindow()) persist.schedule('qr-codes');
+  const sec = attqr.sections().find(x => x.id === sid); const code = sec && attqr.getCode(sid, week);
+  if (!code) { res.status(404).render('error', { title: 'Not found', msg: 'No check-in code for that class and week. Codes exist for this week and the next four (weeks 1–' + attqr.SESSIONS + ').' }); return null; }
+  return { sec, code, url: scanUrl(req, code) }; };
+const qrBase = (sid, week) => `/admin/attendance/qr/${sid}/week/${week}`;
+app.get('/admin/attendance/qr', T, (req, res) => { if (attqr.ensureWindow()) persist.schedule('qr-codes');
+  const wk = attqr.weekOf(); res.render('admin/qrindex', { title: 'QR check-in', wide: true, attqr, week: wk, today: attqr.bakuDate(), term: attqr.termStart(), qrBase,
+    classes: attqr.sections().map(s => ({ ...s, codes: attqr.window(s.id) })) }); });
+app.post('/admin/attendance/qr/term', T, (req, res) => { const d = String(req.body.term_start || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) { flash(req, 'Pick a date.'); return res.redirect('/admin/attendance/qr'); }
+  const mon = attqr.mondayOf(d);
+  // Codes already used (a session exists) keep their dates; unused ones are rebuilt for the new calendar.
+  db.prepare('DELETE FROM attendance_codes WHERE session_id IS NULL').run(); attqr.setMeta('att_term_start', mon); attqr.ensureWindow();
+  audit(req, 'attendance.qr_term', { term_start: mon }); flash(req, 'Week 1 now starts Monday ' + attqr.fmtEn(mon) + ' (Baku time). Unused codes were regenerated.'); res.redirect('/admin/attendance/qr'); });
+app.get('/admin/attendance/qr/:sid/week/:week.png', T, async (req, res) => { const c = qrCtx(req, res); if (!c) return;
+  res.set({ 'Cache-Control': 'private, no-store', 'Content-Disposition': `${req.query.download ? 'attachment' : 'inline'}; filename="BBI-${c.sec.code.replace(/\s+/g, '')}-week${c.code.week_no}-QR.png"` });
+  res.type('png').send(await attqr.png(c.url, req.query.size || 1200)); });
+app.get('/admin/attendance/qr/:sid/week/:week.svg', T, async (req, res) => { const c = qrCtx(req, res); if (!c) return;
+  res.set({ 'Cache-Control': 'private, no-store', 'Content-Disposition': `${req.query.download ? 'attachment' : 'inline'}; filename="BBI-${c.sec.code.replace(/\s+/g, '')}-week${c.code.week_no}-QR.svg"` });
+  res.type('image/svg+xml').send(await attqr.svg(c.url)); });
+app.get('/admin/attendance/qr/:sid/week/:week/roster.json', T, (req, res) => { const c = qrCtx(req, res); if (!c) return;
+  res.set('Cache-Control', 'no-store'); res.json({ live: attqr.isLive(c.code), now_baku: new Date(Date.now() + 4 * 3600e3).toISOString().slice(11, 16), ...attqr.roster(c.code) }); });
+const qrView = print => async (req, res) => { const c = qrCtx(req, res); if (!c) return;
+  if (attqr.isLive(c.code) && !c.code.session_id) { attqr.sessionFor(c.code); persist.schedule('qr-session'); }
+  res.render(print ? 'admin/qrprint' : 'admin/qr', { title: `${c.sec.code} · Week ${c.code.week_no} QR`, wide: true, bodyClass: 'qr-body', ...c, attqr, base: qrBase(c.sec.id, c.code.week_no),
+    qr: await attqr.dataUrl(c.url, print ? 1000 : 900), r: attqr.roster(c.code), live: attqr.isLive(c.code), today: attqr.bakuDate() }); };
+app.get('/admin/attendance/qr/:sid/week/:week', T, qrView(false));
+app.get('/admin/attendance/qr/:sid/week/:week/print', T, qrView(true));
+app.get('/admin/attendance/qr/:sid', T, (req, res) => { attqr.ensureWindow(); res.redirect(qrBase(Number(req.params.sid), Math.max(1, Math.min(attqr.SESSIONS, attqr.weekOf())))); });
+app.post('/admin/attendance/qr/:sid/week/:week/rotate', T, (req, res) => { const c = qrCtx(req, res); if (!c) return; attqr.rotate(c.sec.id, c.code.week_no);
+  audit(req, 'attendance.qr_rotate', { section: c.sec.id, week: c.code.week_no }); flash(req, 'New code made. The old QR for this week no longer works; print or project the new one.'); res.redirect(qrBase(c.sec.id, c.code.week_no)); });
+app.post('/admin/attendance/qr/:sid/week/:week/absent', T, (req, res) => { const c = qrCtx(req, res); if (!c) return; const n = attqr.markRestAbsent(c.code);
+  audit(req, 'attendance.qr_rest_absent', { section: c.sec.id, week: c.code.week_no, n }); flash(req, n + ' student(s) without a scan marked absent. You can still change any mark on the Attendance page.'); res.redirect(qrBase(c.sec.id, c.code.week_no)); });
+// Student scan
+const CHECKIN_MSG = { marked: ['ok', 'Davamiyyətiniz qeyd olundu. Təşəkkür edirik!'], already: ['ok', 'Davamiyyətiniz artıq qeyd olunub. Təşəkkür edirik!'],
+  teacher_mark: ['ok', 'Bu dərs üçün davamiyyətinizi müəllim artıq qeyd edib. Sualınız varsa, müəllimə yazın.'],
+  expired: ['err', 'Bu QR kodun vaxtı bitib. Zəhmət olmasa, bu həftənin yeni kodunu skan edin.'], not_yet: ['err', 'Bu QR kod hələ aktiv deyil. Zəhmət olmasa, dərs həftəsində skan edin.'],
+  invalid: ['err', 'Bu QR kod tanınmadı. Zəhmət olmasa, sinifdə göstərilən kodu yenidən skan edin.'], not_enrolled: ['err', 'Siz bu sinifdə qeydiyyatda deyilsiniz. Zəhmət olmasa, müəllimə müraciət edin.'],
+  not_student: ['err', 'Bu səhifə tələbələr üçündür. Zəhmət olmasa, tələbə hesabınızla daxil olun.'] };
+app.get('/qeyd/:token', (req, res) => { const u = req.session.user;
+  if (!u) { req.session.flash = 'Davamiyyəti qeyd etmək üçün daxil olun.'; return res.redirect('/login?next=' + encodeURIComponent('/qeyd/' + String(req.params.token).replace(/[^\w-]/g, ''))); }
+  const r = attqr.checkIn(req.params.token, u); if (r.kind === 'marked') { persist.schedule('qr-checkin'); audit(req, 'attendance.qr_checkin', { section: r.code.section_id, week: r.code.week_no }); }
+  const [tone, msg] = CHECKIN_MSG[r.kind]; res.status(tone === 'ok' ? 200 : r.kind === 'not_student' ? 403 : 410 - (r.kind === 'invalid' ? 6 : 0));
+  res.render('student/checkin', { title: 'Davamiyyət', lang: 'az', tone, msg, kind: r.kind, code: r.code || null, attqr, name: r.student ? String(r.student.name).split(' ')[0] : '' }); });
 
 // Gradebook
 app.get('/admin/gradebook', T, (req, res) => res.render('admin/gradebook', { title: 'Gradebook', sections: sectionsList(), items: db.prepare(`SELECT gi.*, c.code, sec.id sid, (SELECT a.id FROM assignments a WHERE a.grade_item_id=gi.id) assignment_id, (SELECT COUNT(*) FROM grades g WHERE g.grade_item_id=gi.id AND g.points IS NOT NULL) graded, (SELECT COUNT(*) FROM enrollments e WHERE e.section_id=gi.section_id) n FROM grade_items gi JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id ORDER BY gi.due_date`).all() }));
@@ -186,7 +246,9 @@ app.post('/admin/enrollments/:id/final', A, (req, res) => { const v = String(req
   const e = db.prepare('SELECT * FROM enrollments WHERE id=?').get(req.params.id); if (!e) return res.sendStatus(404);
   db.prepare('UPDATE enrollments SET final_grade=? WHERE id=?').run(v, e.id); audit(req, 'enrollment.final_grade', { id: e.id });
   flash(req, 'Final grade saved.'); const back = String(req.body.back || ''); res.redirect(back.startsWith('/admin/') ? back : '/admin/students/' + e.student_id); });
-app.post('/admin/gradebook/:id', T, (req, res) => { for (const [k, v] of Object.entries(req.body)) if (k.startsWith('p_') && v !== '') setGrade(req.params.id, Number(k.slice(2)), Number(v), null, 'manual');
+app.post('/admin/gradebook/:id', T, (req, res) => { const cur = new Map(db.prepare('SELECT student_id, points FROM grades WHERE grade_item_id=?').all(req.params.id).map(g => [g.student_id, g.points]));
+  // Only changed scores are written (so re-saving keeps automatic attendance scores automatic); a typed change becomes a manual override.
+  for (const [k, v] of Object.entries(req.body)) if (k.startsWith('p_') && v !== '' && cur.get(Number(k.slice(2))) !== Number(v)) setGrade(req.params.id, Number(k.slice(2)), Number(v), null, 'manual');
   for (const [k, v] of Object.entries(req.body)) if (k.startsWith('c_')) { const c = String(v).trim().slice(0, 2000) || null; const sid = Number(k.slice(2));
     if (c) db.prepare(`INSERT INTO grades (grade_item_id, student_id, comment, source) VALUES (?,?,?, 'manual') ON CONFLICT(grade_item_id, student_id) DO UPDATE SET comment=excluded.comment, updated_at=CURRENT_TIMESTAMP`).run(req.params.id, sid, c);
     else db.prepare('UPDATE grades SET comment=NULL WHERE grade_item_id=? AND student_id=?').run(req.params.id, sid); }
@@ -399,6 +461,9 @@ if (require.main === module) {
     const bye = () => { persist.flush().finally(() => process.exit(0)); setTimeout(() => process.exit(0), 8000).unref(); };
     process.on('SIGTERM', bye); process.on('SIGINT', bye);
   }
+  // QR attendance: make sure this week's (and the next 4 weeks') check-in codes exist; re-check hourly so a new week's code appears on time.
+  const topUp = () => { try { if (attqr.ensureWindow()) persist.schedule('qr-codes'); } catch (e) { console.error('QR codes:', e.message); } };
+  topUp(); setInterval(topUp, 60 * 60e3).unref();
   app.listen(PORT, () => console.log(`Baku Bible Institute on http://localhost:${PORT} (demo=${DEMO})`));
 }
 module.exports = app;
