@@ -4,6 +4,12 @@
 <p class="muted"><%= s.student_name %> · submitted <%= late.fmtBaku(s.submitted_at) %> Baku · language: <%= s.lang %> · arrived by <%= sourceLabel(s.source) %> · <span class="pill <%= HL[s.status][1] %>"><%= HL[s.status][0] %></span><% if (!s.assignment_id) { %> <span class="pill amber">No assignment yet</span><% } %></p></div></div>
 <div class="cols rise d1">
 <section class="card"><h2>Student's homework<% if (s.lang==='az') { %> (Azeri)<% } %></h2><blockquote class="az paper" lang="<%= s.lang %>"><%= s.body %></blockquote>
+<% if (qa) { const AL={strong:['Strong','green'],partial:['Partial','amber'],weak:['Weak','red']}; %><h2>Answers by question <span class="small muted">(chose <%= qa.questions_chosen.join(', ') || '—' %> of 5)</span></h2>
+<% if (qa.flag) { %><p class="pill amber"><%= qa.flag %></p><% } %>
+<% qa.answers.forEach(x=>{ %><div class="qa-ans"><h3>Q<%= x.question %><% if (x.alignment) { %> <span class="pill <%= AL[x.alignment][1] %>"><%= AL[x.alignment][0] %> · <%= x.score %>/5 · <%= x.points %> pts</span><% } %></h3><p class="small muted"><%= x.question_en %></p>
+<% if (x.answer_en && s.lang!=='en') { %><p class="small"><b>English:</b> <%= x.answer_en %></p><% } %><% if (x.correction_en) { %><p class="small"><b>Grammar &amp; clarity:</b> <%= x.correction_en %></p><p class="small"><b>Content:</b> <%= x.content_en %></p><% } %></div><% }) %>
+<% if (qa.suggested_points!=null) { %><p><b>Suggested score:</b> <%= qa.suggested_points %> / <%= qa.max_points %> (<%= qa.suggested_pct %>%)</p><% } %><% if (qa.note_en) { %><p class="note"><b>Note for Bruce:</b> <%= qa.note_en %></p><% } %>
+<p class="small"><a href="<%= qa.assignment_overview_url %>">All answers for this assignment →</a></p><% } %>
 <% if (s.media_note) { %><h2>Attachments / media</h2><pre class="small"><%= s.media_note %></pre><% } %>
 <% if (!locked) { %><h2>Assignment</h2>
 <% if (!s.assignment_id) { %><p class="note">This arrived by <%= sourceLabel(s.source) %> without a matched assignment. Please pick one so the due date and late deduction can be applied.</p><% } %>
@@ -25,7 +31,7 @@
 <% if (s.due_at) { %><p class="small">Due <b><%= late.fmtBaku(s.due_at) %></b> Baku · submitted <b><%= late.fmtBaku(s.submitted_at) %></b> Baku ·
 <% if (s.minutes_late) { %><span class="pill red"><%= late.lateText(s.minutes_late) %> (<%= s.minutes_late %> min) → −<%= s.deduction_pct %>% of max = −<%= late.round1(s.deduction_pct/100*s.max_points) %> pts</span><% } else { %><span class="pill green">On time</span><% } %></p>
 <p class="small muted">Policy: <%= s.late_policy %></p><% } else { %><p class="small muted">Free homework (no assignment / no due date) — no late deduction<%= s.max_points==null ? '; score optional' : '' %>.</p><% } %>
-<div class="row"><label>Raw score<input class="num" type="number" name="raw_score" min="0" <%= s.max_points!=null ? 'max='+s.max_points : '' %> step="0.5" value="<%= s.raw_score ?? '' %>" <%= locked?'readonly':'' %>></label>
+<div class="row"><label>Raw score<input class="num" type="number" name="raw_score" min="0" <%= s.max_points!=null ? 'max='+s.max_points : '' %> step="0.5" value="<%= s.raw_score ?? (qa && qa.suggested_points!=null ? qa.suggested_points : '') %>" <%= locked?'readonly':'' %>></label>
 <label>Final score override (optional)<input class="num" type="number" name="final_override" min="0" step="0.5" value="<%= s.score_overridden ? s.final_score : '' %>" <%= locked?'readonly':'' %>></label></div>
 <% if (s.final_score!=null) { %><p class="small">Saved: raw <b><%= s.raw_score ?? '—' %></b> − deduction <b><%= s.deduction_points ?? 0 %></b> = final <b><%= s.final_score %></b><%= s.max_points!=null ? ' / '+s.max_points : '' %><%= s.score_overridden ? ' (your override)' : '' %></p><% } %>
 <p class="small muted">The final score = raw − late deduction, unless you override it. It goes to the gradebook only when the Azeri feedback is returned.</p></div>

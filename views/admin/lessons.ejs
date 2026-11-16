@@ -1,0 +1,21 @@
+<%- include('../partials/head') %>
+<% const ST={needs_summary:['Waiting for the assistant: summary','amber'],needs_questions:['Waiting for the assistant: 5 questions','amber'],draft_ready:['Draft ready — review & publish','blue'],published:['Published to students','green']}; %>
+<div class="pagehead rise"><div><p class="eyebrow">Homework assignment portal · all dates Baku time</p><h1>Lessons &amp; questions</h1>
+<p class="muted">After each class: add the session (Pocket recording title, pasted notes, or a class note). The homework assistant writes the class summary, outline and five questions (English + Azeri). You review, edit and publish. Students answer three of the five on the site, by WhatsApp or by email; the assistant reviews each answer and you get an overview. Nothing reaches students until you publish, and feedback still waits for your approval.</p></div></div>
+<section class="card rise d1"><h2>Add a class session</h2>
+<form method="post" action="/admin/lessons" class="formgrid"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<label>Class<select name="section_id" required><% sections.forEach(x=>{ %><option value="<%= x.id %>"><%= x.code %> — <%= x.title %></option><% }) %></select></label>
+<label>Class date (Baku)<input type="date" name="session_date" value="<%= today %>"></label>
+<label>Lesson title (English)<input name="title" required maxlength="200" placeholder="e.g. Testimonies and revival"></label>
+<label>Lesson title (Azeri, students see this)<input name="title_az" maxlength="200"></label>
+<label>Source<select name="source"><option value="pocket">Pocket recording (assistant fetches it)</option><option value="paste">Paste or upload text</option><option value="note">Existing class note (Dərs xülasəsi)</option></select></label>
+<label>Pocket recording title<input name="pocket_title" placeholder="exact title as in Pocket"></label>
+<label>Class note<select name="note_slug"><option value="">—</option><% notesList.forEach(n=>{ %><option value="<%= n.slug %>"><%= n.course %> · <%= n.title %></option><% }) %></select></label>
+<label>Upload a .txt / .md file (fills the box below)<input type="file" accept=".txt,.md,text/plain,text/markdown" data-fill="source_text"></label>
+<label class="span">Pasted summary / notes / outline<textarea name="source_text" id="source_text" rows="6"></textarea></label>
+<div class="span"><button class="btn gold">Save session</button></div></form></section>
+<h2 class="rise d2">Sessions</h2><% if (!list.length) { %><p class="muted">None yet.</p><% } %>
+<table class="tbl rise d2"><thead><tr><th>Date</th><th>Class</th><th>Lesson</th><th>Source</th><th>Status</th><th></th></tr></thead><tbody>
+<% list.forEach(l=>{ %><tr><td><%= l.session_date || '—' %></td><td><%= l.code %></td><td><a href="/admin/lessons/<%= l.id %>"><%= l.title %></a><% if (l.title_az) { %><br><span class="small muted"><%= l.title_az %></span><% } %></td><td><%= l.source %><% if (l.source_ref) { %><br><span class="small muted"><%= l.source_ref %></span><% } %></td>
+<td><span class="pill <%= ST[l.status][1] %>"><%= ST[l.status][0] %></span></td><td><a class="btn sm" href="/admin/lessons/<%= l.id %>">Open</a><% if (l.assignment_id) { %> <a class="btn sm ghost" href="/admin/homework/assignment/<%= l.assignment_id %>">Answers</a><% } %></td></tr><% }) %></tbody></table>
+<%- include('../partials/foot') %>

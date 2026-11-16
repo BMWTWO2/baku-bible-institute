@@ -1,0 +1,34 @@
+<%- include('../partials/head') %>
+<% const ST={needs_summary:['Waiting for the assistant: summary','amber'],needs_questions:['Waiting for the assistant: 5 questions','amber'],draft_ready:['DRAFT — students cannot see this yet','blue'],published:['Published to students','green']}; const p = a && a.due_at ? late.bakuParts(a.due_at) : {}; %>
+<div class="pagehead rise"><div><p class="eyebrow"><a href="/admin/lessons">Lessons</a> · <%= l.code %> <%= l.course %> · <%= l.session_date || 'no date' %> (Baku)</p><h1><%= l.title %></h1>
+<p><span class="pill <%= ST[l.status][1] %>"><%= ST[l.status][0] %></span> <span class="small muted">source: <%= l.source %><%= l.source_ref ? ' · ' + l.source_ref : '' %><%= l.summary_by ? ' · summary by ' + l.summary_by : '' %><%= l.questions_by ? ' · questions by ' + l.questions_by : '' %></span></p></div>
+<% if (a) { %><a class="btn" href="/admin/homework/assignment/<%= a.id %>">Answers &amp; overview (<%= nsub %>)</a><% } %></div>
+<% if (a && !a.published && qs.length===N) { %><section class="card rise d1 flags"><h2>Publish to students</h2>
+<p>Students in <%= l.code %> will see the Azeri summary and the five questions on their kabinet and can answer three of them (site, WhatsApp or email). Azeri email notices go to the <a href="/admin/outbox">Outbox</a> for your approval — nothing is sent automatically.</p>
+<form method="post" action="/admin/lessons/<%= l.id %>/publish" class="formgrid"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<label>Due date (Baku)<input type="date" name="due_date" required></label><label>Due time (Baku)<input type="time" name="due_time" value="23:59" required></label>
+<label>Max points (3 answers)<input class="num" type="number" name="max_points" min="1" step="0.5" value="<%= a.max_points || 30 %>"></label><label>Late policy<input name="late_policy" value="<%= late.DEFAULT_POLICY %>"></label>
+<div class="span"><button class="btn gold">Publish</button></div></form></section><% } %>
+<% if (a && a.published) { %><section class="card rise d1"><h2>Published</h2><p>Due <b><%= late.fmtBaku(a.due_at) %></b> Baku · <%= a.max_points %> points · <%= nsub %> submission(s).</p>
+<form method="post" action="/admin/lessons/<%= l.id %>/publish" class="row"><input type="hidden" name="_csrf" value="<%= csrf %>"><label>Due date<input type="date" name="due_date" value="<%= p.date %>" required></label><label>Time<input type="time" name="due_time" value="<%= p.time %>" required></label><label>Max points<input class="num" type="number" name="max_points" value="<%= a.max_points %>"></label><input type="hidden" name="late_policy" value="<%= a.late_policy %>"><button class="btn sm">Update</button></form>
+<% if (user.role==='admin' && !nsub) { %><form method="post" action="/admin/lessons/<%= l.id %>/unpublish"><input type="hidden" name="_csrf" value="<%= csrf %>"><button class="link">Unpublish (back to draft)</button></form><% } %></section><% } %>
+<form method="post" action="/admin/lessons/<%= l.id %>"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<section class="card rise d2"><h2>Lesson</h2><div class="formgrid">
+<label>Title (English)<input name="title" value="<%= l.title %>"></label><label>Title (Azeri, students see this)<input name="title_az" value="<%= l.title_az || '' %>"></label>
+<label>Class date (Baku)<input type="date" name="session_date" value="<%= l.session_date || '' %>"></label>
+<label>Class note used as outline reference<select name="note_slug"><option value="">—</option><% notesList.forEach(n=>{ %><option value="<%= n.slug %>" <%= l.note_slug===n.slug?'selected':'' %>><%= n.course %> · <%= n.title %></option><% }) %></select></label>
+<label class="span">Class summary (English)<textarea name="summary_en" rows="10"><%= l.summary_en || '' %></textarea></label>
+<label class="span">Class summary (Azeri — students see this)<textarea name="summary_az" lang="az" rows="10"><%= l.summary_az || '' %></textarea></label>
+<label class="span">Class outline (the review checks answers against this and the summary)<textarea name="outline" rows="8"><%= l.outline || '' %></textarea></label>
+<label class="row span"><input type="checkbox" name="show_in_notes" value="1" style="width:auto" <%= l.show_in_notes?'checked':'' %>> After publishing, also show the Azeri summary under “Dərs xülasələri”.</label></div></section>
+<section class="card rise d2"><h2>Five questions <span class="small muted">(students choose three)</span></h2>
+<% if (a && a.published) { %><p class="note small">Already published: edits change what students see.</p><% } %>
+<% for (let i=1;i<=N;i++){ const q=qs.find(x=>x.n===i)||{}; %><div class="formgrid"><label>Question <%= i %> (English)<textarea name="q<%= i %>_en" rows="3"><%= q.text_en || '' %></textarea></label><label><%= i %>-ci sual (Azərbaycanca)<textarea name="q<%= i %>_az" lang="az" rows="3"><%= q.text_az || '' %></textarea></label></div><% } %>
+<button class="btn gold">Save lesson &amp; questions</button></section></form>
+<% if (l.source_text) { %><section class="card rise d3"><details><summary>Source text (<%= l.source %>)</summary><pre class="small" style="white-space:pre-wrap"><%= l.source_text %></pre></details></section><% } %>
+<% if (l.status!=='published') { %><section class="card rise d3"><h2>Ask the assistant again</h2><div class="row">
+<form method="post" action="/admin/lessons/<%= l.id %>/requeue"><input type="hidden" name="_csrf" value="<%= csrf %>"><input type="hidden" name="to" value="needs_summary"><button class="btn sm ghost">Rewrite summary + outline</button></form>
+<form method="post" action="/admin/lessons/<%= l.id %>/requeue"><input type="hidden" name="_csrf" value="<%= csrf %>"><input type="hidden" name="to" value="needs_questions"><button class="btn sm ghost">Rewrite the five questions</button></form></div>
+<p class="small muted">The assistant picks this up on its next scheduled run.</p>
+<% if (user.role==='admin') { %><form method="post" action="/admin/lessons/<%= l.id %>/delete" class="row"><input type="hidden" name="_csrf" value="<%= csrf %>"><label class="row small"><input type="checkbox" name="confirm" value="yes" style="width:auto"> Delete this lesson and its draft assignment</label><button class="btn ghost sm">Delete</button></form><% } %></section><% } %>
+<%- include('../partials/foot') %>

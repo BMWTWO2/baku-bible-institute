@@ -64,7 +64,7 @@ function ingest(body, { demo = false } = {}) {
     if (!r.changes) continue;
     saved.push(r.lastInsertRowid);
     // Auto-file written homework from an active matched student. Never auto-reply. Unknown numbers stay in the inbox.
-    if (st && st.status === 'active' && inbound.looksLikeHomework({ text: m.text, media: m.media })) {
+    if (st && st.status === 'active' && (inbound.looksLikeHomework({ text: m.text, media: m.media }) || require('./lessons').looksLikeAnswers(st.id, m.text))) {
       const mediaNote = inbound.formatMediaNote(m.media);
       const filed = inbound.fileHomework({ student: st, email: st.email || st.user_email, source: 'whatsapp', text: m.text, mediaNote, source_ref: 'whatsapp:' + r.lastInsertRowid });
       if (filed) {

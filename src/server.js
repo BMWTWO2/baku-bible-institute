@@ -1,7 +1,7 @@
 const path = require('path'); const crypto = require('crypto');
 const express = require('express'); const bcrypt = require('bcryptjs');
 const db = require('./db'); const wa = require('./whatsapp'); const bots = require('./bots'); const { draftCorrection } = require('./azeri'); const notes = require('./notes');
-const hw = require('./homework'); const outbox = require('./outbox'); const grades = require('./grades'); const late = require('./late'); const persist = require('./persist'); const inbound = require('./inbound'); const sessions = require('./sessions'); const attqr = require('./attqr');
+const hw = require('./homework'); const outbox = require('./outbox'); const grades = require('./grades'); const late = require('./late'); const persist = require('./persist'); const inbound = require('./inbound'); const sessions = require('./sessions'); const attqr = require('./attqr'); const lessons = require('./lessons');
 
 const app = express(); const PORT = Number(process.env.PORT || 3050);
 const DEMO = process.env.DEMO_MODE != null ? process.env.DEMO_MODE !== 'false' : process.env.NODE_ENV !== 'production';
@@ -45,7 +45,42 @@ const apiItem = s => ({ id: s.id, status: s.status, course_code: s.course_code, 
   translation_en: s.translation_en, draft_en: s.draft_en, final_en: s.final_en, approved_at: s.approved_at, submitted_at: s.submitted_at });
 const api = express.Router(); api.use(express.json({ limit: '200kb' }), apiAuth);
 api.get('/status', (req, res) => res.json({ counts: hw.counts(), builtInAi: hw.llmEnabled(), durable: persist.status().durable }));
-api.get('/needs-draft', (req, res) => res.json({ items: hw.byStatus('submitted').map(apiItem) }));
+api.get('/needs-draft', (req, res) => { const qa = new Set(lessons.needsReview()); res.json({ items: hw.byStatus('submitted').filter(s => !qa.has(s.id)).map(apiItem) }); });
+// ---- Lessons → five questions → per-answer review → overview (see docs/HOMEWORK_API.md "Assignment portal") ----
+const BASE_URL = req => process.env.PUBLIC_URL || (process.env.NODE_ENV === 'production' ? 'https://bakubibleinstitute.org' : `${req.protocol}://${req.get('host')}`);
+const lessonApi = l => { const a = l.assignment_id && lessons.assignment(l.assignment_id); const note = l.note_slug ? notes.get(l.note_slug) : null;
+  const classNotes = notes.all().filter(n => !n.course || n.course === l.code).map(n => ({ slug: n.slug, title: n.title, course: n.course, body: n.body }));
+  return { id: l.id, status: l.status, course_code: l.code, course: l.course, title: l.title, title_az: l.title_az, session_date: l.session_date, source: l.source, source_ref: l.source_ref, source_text: l.source_text,
+    summary_en: l.summary_en, summary_az: l.summary_az, outline: l.outline, class_note: note ? { slug: note.slug, title: note.title, body: note.body } : null, class_notes: classNotes,
+    assignment: a ? { id: a.id, published: !!a.published, max_points: a.max_points, choose_n: a.choose_n, questions: lessons.questions(a.id) } : null }; };
+api.get('/lessons', (req, res) => res.json({ items: lessons.lessons(req.query.status || null).map(lessonApi) }));
+api.get('/lessons/needs-summary', (req, res) => res.json({ items: lessons.lessons('needs_summary').map(lessonApi) }));
+api.get('/lessons/needs-questions', (req, res) => res.json({ items: lessons.lessons('needs_questions').map(lessonApi) }));
+api.get('/lessons/:id', (req, res) => { const l = lessons.lesson(req.params.id); if (!l) return res.status(404).json({ error: 'not found' }); res.json(lessonApi(l)); });
+api.post('/lessons', (req, res) => { const b = req.body || {}; const sec = lessons.sectionByCode(b.course_code); if (!sec) return res.status(400).json({ error: 'course_code must be an existing class, e.g. "ECC 101"' });
+  if (!String(b.title || '').trim()) return res.status(400).json({ error: 'title is required' });
+  if (b.session_date && !/^\d{4}-\d{2}-\d{2}$/.test(b.session_date)) return res.status(400).json({ error: 'session_date must be YYYY-MM-DD (Baku date)' });
+  const r = lessons.createLesson({ section_id: sec.id, title: b.title, title_az: b.title_az, session_date: b.session_date, source: b.source || 'pocket', source_ref: b.source_ref, source_text: b.source_text, note_slug: b.note_slug, created_by: String(b.by || 'assistant').slice(0, 60) });
+  if (!r.existed && b.summary_en) lessons.setSummary(r.id, { summary_en: b.summary_en, summary_az: b.summary_az, outline: b.outline, by: b.by });
+  res.status(r.existed ? 200 : 201).json({ ok: true, id: r.id, existed: r.existed, status: lessons.lesson(r.id).status }); });
+api.post('/lessons/:id/summary', (req, res) => { const b = req.body || {}; if (!String(b.summary_en || '').trim() || !String(b.outline || '').trim()) return res.status(400).json({ error: 'summary_en and outline are required (summary_az recommended)' });
+  if (!lessons.setSummary(req.params.id, { summary_en: String(b.summary_en).trim(), summary_az: String(b.summary_az || '').trim(), outline: String(b.outline).trim(), title: b.title, title_az: b.title_az, by: String(b.by || 'assistant').slice(0, 60) })) return res.status(404).json({ error: 'not found' });
+  res.json({ ok: true, id: Number(req.params.id), status: lessons.lesson(req.params.id).status }); });
+api.post('/lessons/:id/questions', (req, res) => { const b = req.body || {}; const r = lessons.setQuestions(req.params.id, b.questions, { by: String(b.by || 'assistant').slice(0, 60), instructions_az: b.instructions_az });
+  if (r.error) return res.status(r.code).json({ error: r.error });
+  // Test hook: only the isolated TEST 000 class may be published by the API. Real classes are published by Bruce on the lesson page.
+  if (b.publish_test) { const l = lessons.lesson(req.params.id); if (l.code !== 'TEST 000') return res.status(403).json({ error: 'publish_test is only allowed for the TEST 000 class' }); publishAssignment(r.assignment_id, { due: new Date(Date.now() + 7 * 864e5).toISOString(), max: lessons.MAX_POINTS }); }
+  res.json({ ok: true, lesson_id: Number(req.params.id), assignment_id: r.assignment_id, published: !!lessons.assignment(r.assignment_id).published }); });
+api.get('/needs-review', (req, res) => res.json({ items: lessons.needsReview().map(id => { const s = hw.get(id); const a = lessons.assignment(s.assignment_id); const l = a.lesson_id ? lessons.lesson(a.lesson_id) : null;
+  return { ...apiItem(s), answers_split: lessons.answers(id).map(x => ({ question: x.question_n, text: x.answer_text })), split_by: db.prepare('SELECT split_by FROM hw_submissions WHERE id=?').get(id).split_by,
+    choose_n: a.choose_n, points_per_question: (a.max_points || lessons.MAX_POINTS) / (a.choose_n || lessons.CHOOSE), questions: lessons.questions(a.id),
+    lesson: l ? { id: l.id, title: l.title, session_date: l.session_date, summary_en: l.summary_en, outline: l.outline, class_note: l.note_slug ? (notes.get(l.note_slug) || {}).body || null : null } : null }; }) }));
+api.post('/:id/review', (req, res) => { const r = lessons.review(Number(req.params.id), req.body || {}); if (r.error) return res.status(r.code).json({ error: r.error }); res.json(r); });
+api.get('/needs-report', (req, res) => res.json({ items: lessons.needsReport().map(id => lessons.overview(id, BASE_URL(req))) }));
+api.post('/:id/reported', (req, res) => { if (!lessons.markReported(Number(req.params.id))) return res.status(404).json({ error: 'not found or not reviewed' }); res.json({ ok: true }); });
+api.get('/overview/:id', (req, res) => { const o = lessons.overview(Number(req.params.id), BASE_URL(req)); if (!o) return res.status(404).json({ error: 'not a five-question submission' }); res.json(o); });
+api.get('/assignments/:id/overview', (req, res) => { const a = lessons.assignment(req.params.id); if (!lessons.isQA(a)) return res.status(404).json({ error: 'not a five-question assignment' });
+  res.json({ assignment_id: a.id, course_code: a.code, title_az: a.title_az, published: !!a.published, questions: lessons.questions(a.id), submissions: lessons.submissionsFor(a.id).map(id => lessons.overview(id, BASE_URL(req))) }); });
 api.post('/:id/draft', (req, res) => { const s = hw.get(req.params.id); if (!s) return res.status(404).json({ error: 'not found' });
   const draft = String(req.body?.draft_en || '').trim(); const tr = String(req.body?.translation_en || '').trim();
   if (!draft) return res.status(400).json({ error: 'draft_en is required' });
@@ -259,7 +294,7 @@ const subQ = `SELECT sb.*, s.name student, s.preferred_language, a.title_az, a.i
 app.get('/admin/homework', T, (req, res) => res.render('admin/homework', { title: 'Homework review', anytime: hw.all(), builtInAi: hw.llmEnabled(), sourceLabel: inbound.sourceLabel, unmatched: req.session.user.role==='admin' ? inbound.unmatchedCount() : 0, subs: db.prepare(subQ + ` ORDER BY sb.status='returned', sb.submitted_at DESC`).all() }));
 // Anytime homework: Bruce edits + approves the English correction; only then is it translated to Azeri and returned.
 const hwOr404 = (req, res) => { const s = hw.get(req.params.id); if (!s) res.status(404).render('error', { title: 'Not found', msg: 'No such submission.' }); return s; };
-app.get('/admin/homework/anytime/:id', T, (req, res) => { const s = hwOr404(req, res); if (!s) return; res.render('admin/anytime', { title: 'Homework · ' + s.title, s, late, builtInAi: hw.llmEnabled(), sourceLabel: inbound.sourceLabel, assignments: inbound.assignmentsFor(s.student_id) }); });
+app.get('/admin/homework/anytime/:id', T, (req, res) => { const s = hwOr404(req, res); if (!s) return; res.render('admin/anytime', { title: 'Homework · ' + s.title, s, qa: lessons.overview(s.id), late, builtInAi: hw.llmEnabled(), sourceLabel: inbound.sourceLabel, assignments: inbound.assignmentsFor(s.student_id) }); });
 
 // Assignments: due date + time (Baku), max points, late policy. Creating one also creates its gradebook item.
 const assignQ = `SELECT a.*, c.code, c.title course, gi.max_points gi_max, (SELECT COUNT(*) FROM hw_submissions h WHERE h.assignment_id=a.id) nsub FROM assignments a JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id LEFT JOIN grade_items gi ON gi.id=a.grade_item_id`;
@@ -291,6 +326,69 @@ app.post('/admin/assignments/:id', T, (req, res) => { const a = db.prepare('SELE
         db.prepare('UPDATE hw_submissions SET due_at=?, max_points=?, late_policy=?, minutes_late=?, deduction_pct=? WHERE id=?').run(v.due, v.max, v.policy, m, late.deductionPct(m, v.policy), h.id); } })();
     audit(req, 'assignment.update', { id: a.id }); flash(req, 'Assignment updated.');
   } catch (e) { flash(req, 'Not saved: ' + e.message); } res.redirect('/admin/assignments'); });
+// Lessons (class-session summaries) and five-question assignments. Drafts are invisible to students until published here.
+function publishAssignment(aid, { due, max, policy }) { const a = lessons.assignment(aid); if (!a) return 0; let n = 0;
+  const dueDate = late.bakuParts(due).date; const pol = policy || a.late_policy || late.DEFAULT_POLICY;
+  db.transaction(() => { let gi = a.grade_item_id; if (!gi) gi = db.prepare('INSERT INTO grade_items (section_id, title, max_points, due_date) VALUES (?,?,?,?)').run(a.section_id, a.title_az, max, dueDate).lastInsertRowid;
+    else db.prepare('UPDATE grade_items SET title=?, max_points=?, due_date=? WHERE id=?').run(a.title_az, max, dueDate, gi);
+    db.prepare('UPDATE assignments SET published=1, due_at=?, due_date=?, max_points=?, late_policy=?, grade_item_id=? WHERE id=?').run(due, dueDate, max, pol, gi, a.id);
+    if (a.lesson_id) db.prepare(`UPDATE lessons SET status='published', updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(a.lesson_id);
+    for (const st of db.prepare(`SELECT s.name, COALESCE(s.email, u.email) email FROM enrollments e JOIN students s ON s.id=e.student_id LEFT JOIN users u ON u.id=s.user_id WHERE e.section_id=? AND s.status='active'`).all(a.section_id)) {
+      const t = outbox.tplAssignment({ name: st.name, code: a.code, title: a.title_az, due: late.fmtBaku(due), instructions: a.instructions_az }); if (outbox.queue({ to: st.email, name: st.name, subject: t.subject, text: t.text, kind: 'assignment_notice', ref: 'assignment:' + a.id })) n++; } })();
+  return n; }
+const lessonOr404 = (req, res) => { const l = lessons.lesson(req.params.id); if (!l) res.status(404).render('error', { title: 'Not found', msg: 'No such lesson.' }); return l; };
+app.get('/admin/lessons', T, (req, res) => res.render('admin/lessons', { title: 'Lessons & questions', list: lessons.lessons(), sections: sectionsList(), notesList: notes.all(), today: attqr.bakuDate() }));
+app.post('/admin/lessons', T, (req, res) => { const b = req.body; const sec = db.prepare('SELECT id FROM sections WHERE id=?').get(b.section_id);
+  const src = ['paste', 'pocket', 'note'].includes(b.source) ? b.source : 'paste'; const text = String(b.source_text || '').trim(); const title = String(b.title || '').trim();
+  if (!sec || !title) { flash(req, 'Pick a class and give the lesson a title.'); return res.redirect('/admin/lessons'); }
+  if (src === 'paste' && !text) { flash(req, 'Paste the class summary or notes (or choose Pocket / class note).'); return res.redirect('/admin/lessons'); }
+  if (src === 'note' && !notes.get(b.note_slug)) { flash(req, 'Pick a class note.'); return res.redirect('/admin/lessons'); }
+  const r = lessons.createLesson({ section_id: sec.id, title, title_az: String(b.title_az || '').trim() || null, session_date: /^\d{4}-\d{2}-\d{2}$/.test(b.session_date) ? b.session_date : null, source: src,
+    source_ref: src === 'pocket' ? (String(b.pocket_title || '').trim() || title) : src === 'note' ? b.note_slug : null, source_text: src === 'note' ? notes.get(b.note_slug).body : text || null, note_slug: notes.get(b.note_slug) ? b.note_slug : null, created_by: req.session.user.name });
+  audit(req, 'lesson.create', { id: r.id }); flash(req, r.existed ? 'That lesson already exists.' : 'Lesson saved. The homework assistant will write the summary and five questions on its next run; you review and publish them here.');
+  res.redirect('/admin/lessons/' + r.id); });
+app.get('/admin/lessons/:id', T, (req, res) => { const l = lessonOr404(req, res); if (!l) return; const a = l.assignment_id ? lessons.assignment(l.assignment_id) : null;
+  res.render('admin/lesson', { title: l.title, l, a, qs: a ? lessons.questions(a.id) : [], late, nsub: a ? lessons.submissionsFor(a.id).length : 0, notesList: notes.all(), N: lessons.N_Q }); });
+app.post('/admin/lessons/:id', T, (req, res) => { const l = lessonOr404(req, res); if (!l) return; const b = req.body; const t = v => String(v || '').trim();
+  db.prepare('UPDATE lessons SET title=?, title_az=?, session_date=?, summary_en=?, summary_az=?, outline=?, show_in_notes=?, note_slug=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
+    .run(t(b.title) || l.title, t(b.title_az) || null, /^\d{4}-\d{2}-\d{2}$/.test(b.session_date) ? b.session_date : l.session_date, t(b.summary_en) || null, t(b.summary_az) || null, t(b.outline) || null, b.show_in_notes ? 1 : 0, notes.get(b.note_slug) ? b.note_slug : null, l.id);
+  if (l.status === 'needs_summary' && t(b.summary_en) && t(b.outline)) db.prepare(`UPDATE lessons SET status='needs_questions', summary_by=? WHERE id=?`).run(req.session.user.name, l.id);
+  const qs = Array.from({ length: lessons.N_Q }, (_, i) => ({ en: t(b['q' + (i + 1) + '_en']), az: t(b['q' + (i + 1) + '_az']) }));
+  let msg = 'Saved.';
+  if (qs.some(q => q.en || q.az)) { const a = l.assignment_id && lessons.assignment(l.assignment_id);
+    if (a && a.published) { const up = db.prepare('UPDATE assignment_questions SET text_en=?, text_az=? WHERE assignment_id=? AND n=?'); qs.forEach((q, i) => q.en && q.az && up.run(q.en, q.az, a.id, i + 1)); msg = 'Saved. Students now see the updated question text.'; }
+    else { const r = lessons.setQuestions(l.id, qs, { by: req.session.user.name }); if (r.error) msg = 'Summary saved; questions not saved: fill in all five questions in English and Azeri.'; } }
+  if (l.assignment_id && t(b.title_az)) db.prepare('UPDATE assignments SET title_az=? WHERE id=? AND published=0').run(t(b.title_az), l.assignment_id);
+  audit(req, 'lesson.update', { id: l.id }); flash(req, msg); res.redirect('/admin/lessons/' + l.id); });
+app.post('/admin/lessons/:id/requeue', T, (req, res) => { const l = lessonOr404(req, res); if (!l) return; const to = req.body.to === 'needs_summary' ? 'needs_summary' : 'needs_questions';
+  if (l.status === 'published') { flash(req, 'Already published; edit the text directly instead.'); return res.redirect('/admin/lessons/' + l.id); }
+  db.prepare('UPDATE lessons SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(to, l.id); audit(req, 'lesson.requeue', { id: l.id, to });
+  flash(req, to === 'needs_summary' ? 'Sent back to the assistant to rewrite the summary and outline.' : 'Sent back to the assistant to rewrite the five questions.'); res.redirect('/admin/lessons/' + l.id); });
+app.post('/admin/lessons/:id/publish', T, (req, res) => { const l = lessonOr404(req, res); if (!l) return; const a = l.assignment_id && lessons.assignment(l.assignment_id);
+  if (!a || lessons.questions(a.id).length !== lessons.N_Q) { flash(req, 'Add all five questions first.'); return res.redirect('/admin/lessons/' + l.id); }
+  const due = late.bakuToUtcIso(req.body.due_date, req.body.due_time); const max = Number(req.body.max_points || lessons.MAX_POINTS);
+  if (!due || !(max > 0)) { flash(req, 'Pick a due date and time (Baku) and max points.'); return res.redirect('/admin/lessons/' + l.id); }
+  let pol; try { pol = late.normalizePolicy(String(req.body.late_policy || '').trim() || late.DEFAULT_POLICY); } catch (e) { flash(req, e.message); return res.redirect('/admin/lessons/' + l.id); }
+  const n = a.published ? null : publishAssignment(a.id, { due, max, policy: pol });
+  if (a.published) { db.prepare('UPDATE assignments SET due_at=?, due_date=?, max_points=?, late_policy=? WHERE id=?').run(due, late.bakuParts(due).date, max, pol, a.id); if (a.grade_item_id) db.prepare('UPDATE grade_items SET max_points=?, due_date=? WHERE id=?').run(max, late.bakuParts(due).date, a.grade_item_id); }
+  audit(req, 'lesson.publish', { id: l.id, assignment: a.id });
+  flash(req, a.published ? 'Due date and points updated.' : `Published. Students in ${l.code} now see the summary and five questions on their kabinet. ${n} Azeri email notice(s) are waiting in the Outbox for your approval — nothing has been sent.`);
+  res.redirect('/admin/lessons/' + l.id); });
+app.post('/admin/lessons/:id/unpublish', A, (req, res) => { const l = lessonOr404(req, res); if (!l) return; const a = l.assignment_id && lessons.assignment(l.assignment_id);
+  if (!a || !a.published) return res.redirect('/admin/lessons/' + l.id);
+  if (lessons.submissionsFor(a.id).length) { flash(req, 'Students have already submitted answers, so it stays published.'); return res.redirect('/admin/lessons/' + l.id); }
+  db.transaction(() => { db.prepare(`DELETE FROM email_outbox WHERE ref=? AND status='pending'`).run('assignment:' + a.id); db.prepare('UPDATE assignments SET published=0, grade_item_id=NULL WHERE id=?').run(a.id);
+    if (a.grade_item_id) db.prepare('DELETE FROM grade_items WHERE id=? AND id NOT IN (SELECT grade_item_id FROM grades)').run(a.grade_item_id); db.prepare(`UPDATE lessons SET status='draft_ready' WHERE id=?`).run(l.id); })();
+  audit(req, 'lesson.unpublish', { id: l.id }); flash(req, 'Back to draft. Students no longer see it; unsent notices were removed from the Outbox.'); res.redirect('/admin/lessons/' + l.id); });
+app.post('/admin/lessons/:id/delete', A, (req, res) => { const l = lessonOr404(req, res); if (!l) return; const a = l.assignment_id && lessons.assignment(l.assignment_id);
+  if (req.body.confirm !== 'yes') { flash(req, 'Tick the confirmation box to delete this lesson.'); return res.redirect('/admin/lessons/' + l.id); }
+  if (a && (a.published || lessons.submissionsFor(a.id).length)) { flash(req, 'Unpublish first (only possible before any submissions).'); return res.redirect('/admin/lessons/' + l.id); }
+  db.transaction(() => { if (a) db.prepare('DELETE FROM assignments WHERE id=?').run(a.id); db.prepare('DELETE FROM lessons WHERE id=?').run(l.id); })();
+  audit(req, 'lesson.delete', { id: l.id }); flash(req, 'Lesson deleted.'); res.redirect('/admin/lessons'); });
+app.get('/admin/homework/assignment/:aid', T, (req, res) => { const a = lessons.assignment(req.params.aid); if (!lessons.isQA(a)) return res.status(404).render('error', { title: 'Not found', msg: 'Not a five-question assignment.' });
+  const subs = lessons.submissionsFor(a.id).map(id => lessons.overview(id)); const enrolled = db.prepare(`SELECT s.id, s.name FROM enrollments e JOIN students s ON s.id=e.student_id WHERE e.section_id=? AND s.status='active' ORDER BY s.name`).all(a.section_id);
+  const done = new Set(db.prepare('SELECT DISTINCT student_id FROM hw_submissions WHERE assignment_id=?').all(a.id).map(r => r.student_id));
+  res.render('admin/qaoverview', { title: a.code + ' · ' + a.title_az, a, qs: lessons.questions(a.id), subs, missing: enrolled.filter(s => !done.has(s.id)), late, sourceLabel: inbound.sourceLabel }); });
 app.post('/admin/homework/anytime/:id/save', T, (req, res) => { const s = hwOr404(req, res); if (!s) return;
   if (!hw.saveEdit(s.id, String(req.body.final_en || '').trim() || null)) flash(req, 'This homework was already returned; it can no longer be edited.'); else flash(req, 'Edits saved. Nothing has been sent to the student.');
   res.redirect('/admin/homework/anytime/' + s.id); });
@@ -317,7 +415,7 @@ app.post('/admin/homework/anytime/:id/assignment', T, (req, res) => { const s = 
   if (s.student_id && !db.prepare(`SELECT 1 FROM enrollments e JOIN assignments a ON a.section_id=e.section_id WHERE e.student_id=? AND a.id=?`).get(s.student_id, a.id)) {
     flash(req, 'That assignment is not in this student\'s classes.'); return res.redirect('/admin/homework/anytime/' + s.id); }
   if (!hw.setAssignment(s.id, a)) flash(req, 'Could not attach the assignment (already returned?).');
-  else { audit(req, 'homework.anytime.assignment', { id: s.id, assignment_id: a.id }); flash(req, 'Assignment attached: ' + a.code + ' · ' + a.title_az + '. Late deduction was recalculated.'); }
+  else { lessons.onFiled(s.id); audit(req, 'homework.anytime.assignment', { id: s.id, assignment_id: a.id }); flash(req, 'Assignment attached: ' + a.code + ' · ' + a.title_az + '. Late deduction was recalculated.'); }
   res.redirect('/admin/homework/anytime/' + s.id); });
 
 app.get('/admin/inbound', A, (req, res) => { const status = ['pending','filed','dismissed','all'].includes(req.query.status) ? req.query.status : 'pending';
@@ -424,10 +522,24 @@ app.get('/telebe', S, (req, res) => { const s = me(req); if (!s) return res.rend
     courses: (() => { const mineC = db.prepare(`SELECT c.code, c.title_az, c.title FROM enrollments e JOIN sections sec ON sec.id=e.section_id JOIN courses c ON c.id=sec.course_id WHERE e.student_id=? ORDER BY c.code`).all(s.id);
       return mineC.length ? mineC : db.prepare('SELECT code, title_az, title FROM courses ORDER BY code').all(); })(),
     late, nowIso: new Date().toISOString(),
-    hw: db.prepare(`SELECT a.*, c.code, (SELECT COUNT(*) FROM hw_submissions h WHERE h.assignment_id=a.id AND h.student_email=?) nmine FROM assignments a JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id JOIN enrollments e ON e.section_id=sec.id AND e.student_id=? ORDER BY COALESCE(a.due_at, a.due_date)`).all(String(req.session.user.email).toLowerCase(), s.id) }); });
+    hw: db.prepare(`SELECT a.*, c.code, (SELECT COUNT(*) FROM hw_submissions h WHERE h.assignment_id=a.id AND h.student_email=?) nmine FROM assignments a JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id JOIN enrollments e ON e.section_id=sec.id AND e.student_id=? WHERE COALESCE(a.published,1)=1 ORDER BY COALESCE(a.due_at, a.due_date)`).all(String(req.session.user.email).toLowerCase(), s.id) }); });
 // Submit for a specific assignment. Never blocked by the due date; late work gets the assignment's deduction.
+// Five-question assignments: the student reads the class summary and answers three of the five questions.
+const qaFor = (req) => { const s = me(req); const a = s && db.prepare(`SELECT a.*, c.code, c.title_az course_az FROM assignments a JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id JOIN enrollments e ON e.section_id=a.section_id AND e.student_id=? WHERE a.id=? AND a.kind='qa5' AND a.published=1`).get(s.id, req.params.id); return { s, a }; };
+app.get('/telebe/tapsiriq/:id', S, (req, res) => { const { s, a } = qaFor(req); if (!a) return res.status(404).render('error', { title: 'Tapılmadı', msg: 'Bu tapşırıq tapılmadı.', lang: 'az' });
+  const l = a.lesson_id ? lessons.lesson(a.lesson_id) : null; const mine = db.prepare(`SELECT id, status, submitted_at, source FROM hw_submissions WHERE student_id=? AND assignment_id=? ORDER BY id DESC`).all(s.id, a.id);
+  const open = mine.find(m => m.status === 'submitted'); const prev = open ? Object.fromEntries(lessons.answers(open.id).map(x => [x.question_n, x.answer_text])) : {};
+  res.render('student/qa', { title: a.title_az, lang: 'az', a, l, qs: lessons.questions(a.id), mine, prev, late, summaryHtml: l ? notes.render(l.summary_az || l.summary_en || '') : '', CHOOSE: a.choose_n || lessons.CHOOSE }); });
+app.post('/telebe/tapsiriq/:id/cavablar', S, (req, res) => { const { s, a } = qaFor(req); if (!a) { flash(req, 'Tapşırıq tapılmadı.'); return res.redirect('/telebe#tapsiriqlarim'); }
+  const choose = a.choose_n || lessons.CHOOSE; const filled = lessons.questions(a.id).map(q => ({ question: q.n, text: String(req.body['a' + q.n] || '').trim() })).filter(x => x.text);
+  if (filled.length !== choose) { flash(req, `Zəhmət olmasa, beş sualdan düz ${choose} sual seçib cavab yazın (indi ${filled.length} cavab var).`); return res.redirect('/telebe/tapsiriq/' + a.id); }
+  if (filled.some(x => x.text.length > 8000)) { flash(req, 'Cavablardan biri çox uzundur (hər cavab ən çox 8 000 simvol).'); return res.redirect('/telebe/tapsiriq/' + a.id); }
+  const r = lessons.submitForm({ student: s, email: req.session.user.email, a, filled }); const h = hw.get(r.id);
+  flash(req, (r.replaced ? 'Cavablarınız yeniləndi. ' : 'Təşəkkür edirik! Cavablarınız göndərildi. ') + (h.minutes_late ? `Son tarixdən sonra göndərildi, buna görə balınızdan ${h.deduction_pct}% çıxılacaq. ` : '') + 'Müəllim yoxlayandan sonra rəyi kabinetinizdə görəcəksiniz.');
+  audit(req, 'qa.submit', { assignment: a.id, hw: r.id }); res.redirect('/telebe/tapsiriq/' + a.id); });
 app.post('/telebe/tapsiriq/:id', S, (req, res) => { const s = me(req); const body = String(req.body.body || '').trim();
-  const a = db.prepare(`SELECT a.*, c.code FROM assignments a JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id JOIN enrollments e ON e.section_id=a.section_id AND e.student_id=? WHERE a.id=?`).get(s?.id, req.params.id);
+  if (db.prepare(`SELECT 1 FROM assignments WHERE id=? AND kind='qa5'`).get(req.params.id)) return res.redirect('/telebe/tapsiriq/' + req.params.id);
+  const a = db.prepare(`SELECT a.*, c.code FROM assignments a JOIN sections sec ON sec.id=a.section_id JOIN courses c ON c.id=sec.course_id JOIN enrollments e ON e.section_id=a.section_id AND e.student_id=? WHERE a.id=? AND COALESCE(a.published,1)=1`).get(s?.id, req.params.id);
   if (!a || !body) { flash(req, 'Mətn boşdur və ya tapşırıq tapılmadı.'); return res.redirect('/telebe#tapsiriqlarim'); }
   if (body.length > 20000) { flash(req, 'Mətn çox uzundur (ən çox 20 000 simvol).'); return res.redirect('/telebe#tapsiriqlarim'); }
   const id = hw.create({ student: s, email: req.session.user.email, course_code: a.code, title: a.title_az, body, assignment: a }); const h = hw.get(id);
@@ -447,7 +559,11 @@ app.post('/telebe/tapsiriq', S, async (req, res) => { const s = me(req); const b
 
 // Class notes / Dərs xülasələri (content files, any signed-in user)
 const N = need('student', 'teacher', 'admin');
-app.get('/telebe/xulaseler', N, (req, res) => res.render('student/notes', { title: 'Dərs xülasələri', notes: notes.all(), lang: 'az' }));
+const lessonNote = l => ({ slug: 'ders-' + l.id, title: l.title_az || l.title, title_az: '', course: l.code, date: l.session_date || '', source: 'Dərs xülasəsi', body: l.summary_az || l.summary_en, html: notes.render(l.summary_az || l.summary_en),
+  excerpt: String(l.summary_az || l.summary_en).replace(/[*_#>-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 220) });
+app.get('/telebe/xulaseler', N, (req, res) => res.render('student/notes', { title: 'Dərs xülasələri', notes: [...lessons.publishedLessonNotes().map(lessonNote), ...notes.all()], lang: 'az' }));
+app.get('/telebe/xulaseler/ders-:lid', N, (req, res, next) => { const l = lessons.publishedLessonNotes().find(x => x.id === Number(req.params.lid)); if (!l) return next();
+  res.render('student/note', { title: l.title_az || l.title, n: lessonNote(l), lang: 'az' }); });
 app.get('/telebe/xulaseler/:slug', N, (req, res) => { const n = notes.get(req.params.slug);
   if (!n) return res.status(404).render('error', { title: 'Tapılmadı', msg: 'Bu xülasə tapılmadı.' });
   res.render('student/note', { title: n.title, n, lang: 'az' }); });

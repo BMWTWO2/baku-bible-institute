@@ -1,0 +1,17 @@
+<%- include('../partials/head') %>
+<% const AL={strong:['Strong','green'],partial:['Partial','amber'],weak:['Weak','red']}; const HL={submitted:['Waiting for assistant review','amber'],drafted:['Reviewed — ready for you','blue'],approved_by_bruce:['Approved · awaiting Azeri','violet'],returned:['Returned','green']}; %>
+<div class="pagehead rise"><div><p class="eyebrow"><a href="/admin/homework">Homework</a> · <% if (a.lesson_id) { %><a href="/admin/lessons/<%= a.lesson_id %>">Lesson</a> · <% } %><%= a.code %> <%= a.course %></p><h1><%= a.title_az %></h1>
+<p class="muted"><%= a.published ? 'Due ' + (a.due_at ? late.fmtBaku(a.due_at) + ' Baku' : '—') : 'DRAFT — not visible to students' %> · <%= a.max_points %> points · <%= subs.length %> submission(s)<% if (missing.length) { %> · not yet submitted: <%= missing.map(m=>m.name).join(', ') %><% } %></p></div></div>
+<section class="card rise d1"><h2>Questions</h2><ol><% qs.forEach(q=>{ %><li><%= q.text_en %><br><span class="small muted" lang="az"><%= q.text_az %></span></li><% }) %></ol></section>
+<% if (subs.length) { %><table class="tbl rise d2"><thead><tr><th>Student</th><th>Chose</th><th>Alignment</th><th>Suggested</th><th>Status</th><th></th></tr></thead><tbody>
+<% subs.forEach(o=>{ %><tr><td><%= o.student_first_name %> <span class="small muted"><%= sourceLabel(o.source) %></span></td><td><%= o.questions_chosen.join(', ') || '—' %><% if (o.flag) { %><br><span class="pill amber"><%= o.flag %></span><% } %></td>
+<td><% o.answers.forEach(x=>{ if (x.alignment) { %><span class="pill <%= AL[x.alignment][1] %>">Q<%= x.question %> <%= AL[x.alignment][0] %> <%= x.score %>/5</span> <% } }) %></td>
+<td><%= o.suggested_points!=null ? o.suggested_points + ' / ' + o.max_points + ' (' + o.suggested_pct + '%)' : '—' %></td><td><span class="pill <%= HL[o.status][1] %>"><%= HL[o.status][0] %></span></td><td><a class="btn sm" href="/admin/homework/anytime/<%= o.id %>">Review</a></td></tr><% }) %></tbody></table><% } %>
+<% subs.forEach(o=>{ %><section class="card rise d3"><h2><%= o.student_first_name %> — questions <%= o.questions_chosen.join(', ') || '—' %></h2>
+<p class="small muted">Submitted <%= o.submitted_baku %> Baku by <%= sourceLabel(o.source) %> · language <%= o.lang %><%= o.reviewed_by ? ' · reviewed by ' + o.reviewed_by : '' %></p>
+<% o.answers.forEach(x=>{ %><div class="qa-ans"><h3>Question <%= x.question %><% if (x.alignment) { %> <span class="pill <%= AL[x.alignment][1] %>"><%= AL[x.alignment][0] %> · <%= x.score %>/5 · <%= x.points %> pts</span><% } %></h3>
+<p class="small muted"><%= x.question_en %></p><blockquote class="paper" lang="<%= o.lang %>"><%= x.answer_text %></blockquote><% if (x.answer_en && o.lang!=='en') { %><p class="small"><b>English:</b> <%= x.answer_en %></p><% } %>
+<% if (x.correction_en) { %><p><b>Grammar &amp; clarity:</b> <%= x.correction_en %></p><p><b>Content vs. outline &amp; summary:</b> <%= x.content_en %></p><% } else { %><p class="muted small">Not reviewed yet.</p><% } %></div><% }) %>
+<% if (!o.answers.length) { %><p class="muted">Answers not split into questions yet — the assistant will do it on its next run.</p><% } %>
+<% if (o.note_en) { %><p class="note"><b>Note for Bruce:</b> <%= o.note_en %></p><% } %></section><% }) %>
+<%- include('../partials/foot') %>

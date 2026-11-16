@@ -75,3 +75,5 @@ a.notes-link{display:block;text-decoration:none;color:inherit;border-left:4px so
 .checkin{max-width:560px;margin:30px auto}.checkin-icon{width:72px;height:72px;border-radius:50%;display:grid;place-items:center;margin:0 auto 8px;font-size:38px;color:#fff;background:var(--green)}.checkin.err .checkin-icon{background:var(--red)}.checkin-msg{font-size:1.2rem}
 @media (max-width:900px){.qr-wrap{grid-template-columns:1fr}}
 @media print{.topbar,.foot,.qr-side,.flash,.noprint,.demo-bar{display:none!important}.qr-wrap{display:block}.qr-stage,.card{box-shadow:none;border:0}.qr-img{width:16cm!important}body{background:#fff}}
+/* Lessons / five questions */
+.qa-q{border-top:1px dashed var(--line);padding:12px 0}.qa-q h3{margin:.1em 0}.qa-ans{border-top:1px dashed var(--line);padding:10px 0}

@@ -29,15 +29,16 @@ function assignmentsFor(studentId) {
     JOIN enrollments e ON e.section_id=sec.id AND e.student_id=? ORDER BY a.due_at IS NULL, a.due_at, a.id`).all(studentId);
 }
 
+// Only assignments students can see (drafts are never matched).
 function openAssignmentsFor(studentId) {
   const now = new Date().toISOString();
-  return assignmentsFor(studentId).filter(a => !a.due_at || a.due_at >= now);
+  return assignmentsFor(studentId).filter(a => a.published !== 0 && (!a.due_at || a.due_at >= now));
 }
 
 function matchAssignment(studentId, text) {
   if (!studentId) return null;
   const hay = String(text || '').toLocaleLowerCase('az');
-  const all = assignmentsFor(studentId);
+  const all = assignmentsFor(studentId).filter(a => a.published !== 0);
   const named = hay.trim() ? all.filter(a => {
     const title = String(a.title_az || '').toLocaleLowerCase('az');
     const code = String(a.code || '').toLocaleLowerCase('az');
@@ -129,10 +130,14 @@ function fileHomework({ student, email, source, text, subject, mediaNote, assign
   if (!body) return null;
   const course_code = guessCourse(student?.id, [subject, text].filter(Boolean).join('\n'), a);
   const title = guessTitle(text, subject, a);
+  // Five-question assignments: more messages from the same student are merged into the open submission.
+  const lessons = require('./lessons'); const open = a && lessons.findOpenInbound(student?.id, a.id);
+  if (open) { lessons.appendInbound(open.id, String(text || '').trim() || body, mediaNote); return { id: open.id, assignment_id: a.id, needs_assignment: false, merged: true }; }
   const id = hw.create({
     student, email: email || student?.email || student?.user_email, course_code, title,
     body: body.slice(0, 20000), assignment: a, source: source || 'web', media_note: mediaNote || null, source_ref: source_ref || null
   });
+  require('./lessons').onFiled(id);
   return { id, assignment_id: a?.id || null, needs_assignment: !a };
 }
 

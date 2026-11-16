@@ -15,3 +15,7 @@ document.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',a
     fill('[data-missing]',d.missing,x=>li(x.name),'Everyone is in ✓');fill('[data-scanned]',d.scanned,x=>li(x.name,x.time));fill('[data-marked]',d.marked,x=>li(x.name,x.status));
     $('[data-updated]').textContent='· updated '+d.now_baku+' Baku'}catch(e){}};setInterval(tick,5000);})();
 document.querySelectorAll('form[data-confirm]').forEach(f=>f.addEventListener('submit',e=>{if(!confirm(f.dataset.confirm))e.preventDefault()}));
+// Lessons: fill a textarea from a chosen .txt/.md file (read in the browser; nothing uploaded separately).
+document.querySelectorAll('input[type=file][data-fill]').forEach(inp=>inp.addEventListener('change',()=>{const f=inp.files[0];const ta=document.getElementById(inp.dataset.fill);if(!f||!ta)return;const r=new FileReader();r.onload=()=>{ta.value=String(r.result).slice(0,100000);const s=inp.form&&inp.form.querySelector('[name=source]');if(s)s.value='paste'};r.readAsText(f)}));
+// Five questions: live "x of 3 chosen" counter.
+document.querySelectorAll('form[data-choose]').forEach(f=>{const n=+f.dataset.choose;const out=f.querySelector('[data-choose-count]');const tas=[...f.querySelectorAll('textarea')];const upd=()=>{const k=tas.filter(t=>t.value.trim()).length;if(out){out.textContent=`Seçilib: ${k} / ${n}`;out.classList.toggle('err',k>n)}};tas.forEach(t=>t.addEventListener('input',upd));upd()});

@@ -13,7 +13,7 @@
 <div class="span"><button class="btn gold">Create assignment</button></div></form></section>
 <h2 class="rise d2">Existing</h2>
 <% if (!list.length) { %><p class="muted">No assignments yet.</p><% } %>
-<div class="list rise d2"><% list.forEach(a=>{ const p=late.bakuParts(a.due_at); %><article class="card"><p class="eyebrow"><%= a.code %> · due <%= a.due_at ? late.fmtBaku(a.due_at) + ' Baku' : (a.due_date || 'no due date') %> · <%= a.max_points ?? a.gi_max ?? '—' %> pts · <%= a.nsub %> submission(s)</p>
+<div class="list rise d2"><% list.forEach(a=>{ const p=late.bakuParts(a.due_at); %><article class="card"><p class="eyebrow"><%= a.code %> · due <%= a.due_at ? late.fmtBaku(a.due_at) + ' Baku' : (a.due_date || 'no due date') %> · <%= a.max_points ?? a.gi_max ?? '—' %> pts · <%= a.nsub %> submission(s)<% if (a.published===0) { %> · <span class="pill blue">DRAFT — students cannot see it</span><% } %><% if (a.kind==='qa5') { %> · <a href="/admin/lessons/<%= a.lesson_id %>">lesson &amp; 5 questions</a> · <a href="/admin/homework/assignment/<%= a.id %>">answers overview</a><% } %></p>
 <details><summary><b><%= a.title_az %></b> — edit</summary>
 <form method="post" action="/admin/assignments/<%= a.id %>" class="formgrid"><input type="hidden" name="_csrf" value="<%= csrf %>">
 <label>Title<input name="title_az" value="<%= a.title_az %>" required></label>

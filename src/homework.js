@@ -93,6 +93,7 @@ async function chat(system, user) {
 }
 async function autoDraft(id) {
   if (!llmEnabled()) return false; const s = get(id); if (!s || s.status !== 'submitted') return false;
+  if (s.assignment_id && db.prepare(`SELECT 1 FROM assignments WHERE id=? AND kind='qa5'`).get(s.assignment_id)) return false; // five-question work is reviewed per answer (src/lessons.js)
   try {
     const translation = s.lang === 'en' ? null : await chat('Translate this Bible-school homework into clear English. Output only the translation.', s.body);
     const draft = await chat('You are a kind teaching assistant at the Baku Bible Institute. Write a short, warm, personal correction of this homework in English for Pastor Bruce Wright to edit: thank the student, note strengths, give concrete corrections (content, Scripture use, grammar), and one next step. Plain text.',

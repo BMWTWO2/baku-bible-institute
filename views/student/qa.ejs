@@ -1,0 +1,12 @@
+<%- include('../partials/head', { lang: 'az' }) %>
+<div class="pagehead rise"><div><p class="eyebrow"><a href="/telebe#tapsiriqlarim">Tapşırıqlarım</a> · <%= a.code %><% if (a.due_at) { %> · Son tarix: <%= late.fmtBaku(a.due_at) %> (Bakı vaxtı)<% } %> · <%= a.max_points %> bal</p><h1><%= a.title_az %></h1></div></div>
+<% if (summaryHtml) { %><section class="card rise d1 note-body"><h2>Dərsin xülasəsi</h2><%- summaryHtml %></section><% } %>
+<section class="card rise d2"><h2>Beş sualdan <%= CHOOSE %>-nü seçin</h2>
+<% if (a.instructions_az) { %><p class="muted"><%= a.instructions_az %></p><% } %>
+<% if (mine.length) { %><p class="note small">Göndərilib: <%= late.fmtBaku(mine[0].submitted_at) %> (Bakı vaxtı)<%= mine[0].status==='submitted' ? ' — müəllim yoxlayana qədər cavablarınızı dəyişə bilərsiniz.' : ' — müəllim yoxlayır.' %></p><% } %>
+<form method="post" action="/telebe/tapsiriq/<%= a.id %>/cavablar" data-choose="<%= CHOOSE %>"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<% qs.forEach(q=>{ %><div class="qa-q"><h3><%= q.n %>-ci sual</h3><p><%= q.text_az %></p><details class="small muted"><summary>English</summary><%= q.text_en %></details>
+<textarea name="a<%= q.n %>" lang="az" rows="5" placeholder="Bu sualı seçirsinizsə, cavabınızı buraya yazın…"><%= prev[q.n] || '' %></textarea></div><% }) %>
+<p class="small muted" data-choose-count></p><button class="btn gold">Cavabları göndər</button></form>
+<p class="small muted">WhatsApp və ya e-poçtla da göndərə bilərsiniz: hər cavabın əvvəlində sualın nömrəsini yazın, məsələn “1)”, “3)”, “5)”.</p></section>
+<%- include('../partials/foot') %>
