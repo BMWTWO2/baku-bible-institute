@@ -77,3 +77,22 @@ a.notes-link{display:block;text-decoration:none;color:inherit;border-left:4px so
 @media print{.topbar,.foot,.qr-side,.flash,.noprint,.demo-bar{display:none!important}.qr-wrap{display:block}.qr-stage,.card{box-shadow:none;border:0}.qr-img{width:16cm!important}body{background:#fff}}
 /* Lessons / five questions */
 .qa-q{border-top:1px dashed var(--line);padding:12px 0}.qa-q h3{margin:.1em 0}.qa-ans{border-top:1px dashed var(--line);padding:10px 0}
+
+/* Temporary homepage enrollment form */
+.enroll-band{padding:12px 0 48px}
+.enroll-card{max-width:640px;margin:0 auto;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:28px 22px 32px;box-shadow:0 18px 40px -30px rgba(13,27,46,.35)}
+.enroll-card h2{font-size:2rem;margin-top:.2em}
+.enroll-note{margin:0 0 18px;font-size:1.02rem}
+.enroll-thanks{font-size:1.15rem;margin:.4em 0 8px}
+.enroll-form{display:grid;gap:16px}
+.enroll-form label{font-size:15px;gap:8px}
+.enroll-form input[type=text],.enroll-form input[type=tel]{min-height:52px;font-size:17px;padding:12px 14px;border-radius:12px}
+.enroll-classes{border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:0;display:grid;gap:8px}
+.enroll-classes legend{font-weight:600;padding:0 6px}
+.enroll-check{flex-direction:row;align-items:center;gap:14px;font-size:16px;padding:12px 10px;border-radius:12px;background:#f7f1e6;cursor:pointer}
+.enroll-check input{width:24px;height:24px;flex:none;accent-color:var(--navy)}
+.enroll-submit{min-height:56px;font-size:17px;margin-top:4px}
+.enroll-errors{background:#f8ddd9;border:1px solid #e8b2ab;color:var(--red);border-radius:12px;padding:12px 16px;margin:0 0 8px;list-style:none}
+.enroll-errors li{margin:4px 0}
+.hp{position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden}
+@media(min-width:700px){.enroll-card{padding:32px 36px}}

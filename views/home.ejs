@@ -9,7 +9,7 @@
   <div class="waves"><span></span><span></span></div>
   <div class="hero-copy rise"><p class="eyebrow">Bakı · Xəzər sahilində</p><h1>Baku Bible<br><em>Institute</em></h1>
     <p class="lead">Rooted in Scripture, taught in Azerbaijani. Müqəddəs Kitabı öyrənmək, xidmətə hazırlaşmaq — Xəzərin sahilində.</p>
-    <div class="cta"><a class="btn gold" href="/login">Tələbə girişi · Student sign in</a><a class="btn ghost" href="#programs">Proqramlar</a></div></div>
+    <div class="cta"><a class="btn gold" href="/login">Tələbə girişi · Student sign in</a><% if (enroll && enroll.open) { %><a class="btn ghost" href="#qeydiyyat">Bu həftə qeydiyyat · Enroll this week</a><% } else { %><a class="btn ghost" href="#programs">Proqramlar</a><% } %></div></div>
 </section>
 <section id="programs" class="band wrap">
   <div class="grid3">
@@ -19,5 +19,48 @@
   </div>
   <div class="stats rise"><div><b data-count="<%= stats.students %>">0</b><span>active students · tələbə</span></div><div><b data-count="<%= stats.courses %>">0</b><span>courses · fənn</span></div><div><b>az</b><span>taught in Azerbaijani</span></div></div>
   <blockquote class="verse rise">“Sənin sözün ayağım üçün çıraq, yolum üçün nurdur.”<cite>Zəbur 119:105</cite></blockquote>
+</section>
+<section id="qeydiyyat" class="enroll-band wrap">
+  <div class="enroll-card rise">
+    <p class="eyebrow">Qeydiyyat · Enrollment</p>
+    <% if (typeof enrollThanks !== 'undefined' && enrollThanks) { %>
+      <h2>Təşəkkür edirik!</h2>
+      <p class="enroll-thanks">Qeydiyyatınız qəbul olundu. Pastor Bruce sizinlə əlaqə saxlayacaq. Allah sizi xeyir-dua etsin.</p>
+      <p class="muted">Thank you — your enrollment request was received. Pastor Bruce will be in touch. God bless you.</p>
+    <% } else if (!enroll || !enroll.open) { %>
+      <h2>Qeydiyyat bağlanıb</h2>
+      <p>Bu həftənin qeydiyyat müddəti bitib<% if (enroll && enroll.closeLabelAz) { %> (<%= enroll.closeLabelAz %>)<% } %>. Əgər köməyə ehtiyacınız varsa, zəhmət olmasa Pastor Bruce ilə əlaqə saxlayın.</p>
+      <p class="muted">Enrollment is now closed. Please contact Pastor Bruce Wright if you need help.</p>
+    <% } else { %>
+      <h2>Bu həftə qeydiyyatdan keçin</h2>
+      <p class="enroll-note">Qeydiyyat <b><%= enroll.closeLabelAz %></b> bağlanır. Yalnız bu həftə ərzində açıqdır.<br><span class="muted">Enrollment closes <%= enroll.closeLabelEn %>. This form is open this week only.</span></p>
+      <% if (typeof enrollErrors !== 'undefined' && enrollErrors && enrollErrors.length) { %>
+        <ul class="enroll-errors"><% enrollErrors.forEach(e => { %><li><%= e.az %> <span class="muted"><%= e.en %></span></li><% }) %></ul>
+      <% } %>
+      <% const v = typeof enrollValues !== 'undefined' && enrollValues ? enrollValues : {}; const picked = v.classes || []; %>
+      <form method="post" action="/enroll" class="enroll-form" novalidate>
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <div class="hp" aria-hidden="true"><label>Website<input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
+        <label>Ad, soyad · Full name
+          <input name="name" required autocomplete="name" value="<%= v.name || '' %>" placeholder="Adınız və soyadınız">
+        </label>
+        <label>Telefon nömrəsi · Telephone number
+          <input name="phone" type="tel" required autocomplete="tel" inputmode="tel" value="<%= v.phone || '' %>" placeholder="+994 …">
+        </label>
+        <label>WhatsApp nömrəsi <span class="muted">(yalnız telefondan fərqlidirsə · only if different from phone)</span>
+          <input name="whatsapp" type="tel" autocomplete="tel" inputmode="tel" value="<%= v.whatsapp || '' %>" placeholder="+994 …">
+        </label>
+        <fieldset class="enroll-classes">
+          <legend>Fənn seçin · Choose class(es) <span class="muted">(ən azı biri · at least one)</span></legend>
+          <% enroll.courses.forEach(c => { %>
+            <label class="enroll-check"><input type="checkbox" name="classes" value="<%= c.code %>" <%= picked.includes(c.code)?'checked':'' %>>
+              <span><b><%= c.title_az %></b> · <%= c.title %> <span class="muted">(<%= c.code %>)</span></span>
+            </label>
+          <% }) %>
+        </fieldset>
+        <button class="btn gold full enroll-submit" type="submit">Qeydiyyatı göndər · Submit enrollment</button>
+      </form>
+    <% } %>
+  </div>
 </section>
 <%- include('partials/foot') %>

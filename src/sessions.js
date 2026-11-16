@@ -67,6 +67,10 @@ function csrfGuard(req, res, next) {
     if (api) return res.status(403).json({ error: 'invalid csrf token' });
     const nextPath = safeNext(req);
     if (!req.session.user) {
+      if (req.path === '/enroll') {
+        req.session.flash = 'That form was out of date. Please try again. · Forma köhnəlib, zəhmət olmasa yenidən yoxlayın.';
+        return res.redirect('/#qeydiyyat');
+      }
       req.session.flash = 'Your session expired. Please sign in again.';
       return res.redirect('/login?next=' + encodeURIComponent(nextPath));
     }

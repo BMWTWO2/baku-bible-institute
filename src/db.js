@@ -11,4 +11,5 @@ addCol('assignments', 'late_policy', 'TEXT');   // e.g. "24:5, 72:10, 168:20, *:
 addCol('hw_submissions', 'source', "TEXT NOT NULL DEFAULT 'web'");
 addCol('hw_submissions', 'media_note', 'TEXT');
 addCol('hw_submissions', 'source_ref', 'TEXT');
+addCol('students', 'phone', 'TEXT');
 module.exports = db;

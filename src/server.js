@@ -2,6 +2,7 @@ const path = require('path'); const crypto = require('crypto');
 const express = require('express'); const bcrypt = require('bcryptjs');
 const db = require('./db'); const wa = require('./whatsapp'); const bots = require('./bots'); const { draftCorrection } = require('./azeri'); const notes = require('./notes');
 const hw = require('./homework'); const outbox = require('./outbox'); const grades = require('./grades'); const late = require('./late'); const persist = require('./persist'); const inbound = require('./inbound'); const sessions = require('./sessions'); const attqr = require('./attqr'); const lessons = require('./lessons');
+const enroll = require('./enroll');
 
 const app = express(); const PORT = Number(process.env.PORT || 3050);
 const DEMO = process.env.DEMO_MODE != null ? process.env.DEMO_MODE !== 'false' : process.env.NODE_ENV !== 'production';
@@ -104,6 +105,22 @@ app.get('/api/attendance', apiAuth, (req, res) => { if (attqr.ensureWindow()) pe
 app.get('/api/attendance/qr/:sid/week/:week.png', apiAuth, async (req, res) => { const c = attqr.getCode(Number(req.params.sid), Number(req.params.week)); if (!c) return res.status(404).json({ error: 'no such code' });
   res.set('Cache-Control', 'no-store').type('png').send(await attqr.png(scanUrl(req, c), req.query.size || 1200)); });
 
+
+// Homepage enrollment requests (same bearer token as homework/flags). See docs/ENROLLMENTS.md.
+app.get('/api/enrollments', apiAuth, (req, res) => {
+  const unnotified = String(req.query.unnotified || '') === '1' || String(req.query.unnotified || '') === 'true';
+  res.json({ items: enroll.list({ unnotified }), close_at: enroll.closeAt().toISOString(), open: enroll.isOpen() });
+});
+app.post('/api/enrollments/:id/notified', apiAuth, (req, res) => {
+  if (!enroll.get(req.params.id)) return res.status(404).json({ error: 'not found' });
+  const changed = enroll.markNotified(req.params.id);
+  res.json({ ok: true, id: Number(req.params.id), notified: true, already: !changed });
+});
+app.post('/api/enrollments/:id/discard', apiAuth, (req, res) => {
+  const r = enroll.discard(req.params.id);
+  if (!r.ok) return res.status(r.error === 'not found' ? 404 : 409).json(r);
+  res.json(r);
+});
 // Inbound homework email (Cloudflare Email Worker posts here). Never sends a reply.
 const INBOUND_TOKEN = () => process.env.INBOUND_EMAIL_TOKEN || '';
 const inboundAuth = (req, res, next) => {
@@ -142,7 +159,17 @@ const sectionsList = () => db.prepare(`SELECT sec.*, c.code, c.title, c.title_az
 
 // Public
 app.get('/healthz', (_q, res) => res.json({ ok: true, app: 'baku-bible-institute', db: db.prepare('SELECT 1 ok').get().ok === 1, demo: DEMO, durable: persist.status().durable }));
-app.get('/', (req, res) => res.render('home', { title: 'Baku Bible Institute', stats: { students: db.prepare(`SELECT COUNT(*) n FROM students WHERE status='active'`).get().n, courses: db.prepare('SELECT COUNT(*) n FROM courses').get().n } }));
+const homeLocals = (req, extra = {}) => ({ title: 'Baku Bible Institute', stats: { students: db.prepare(`SELECT COUNT(*) n FROM students WHERE status='active'`).get().n, courses: db.prepare('SELECT COUNT(*) n FROM courses').get().n }, enroll: enroll.pageData(), enrollThanks: String(req.query.tesekkur || '') === '1', enrollErrors: null, enrollValues: {}, ...extra });
+app.get('/', (req, res) => res.render('home', homeLocals(req)));
+app.post('/enroll', (req, res) => {
+  if (enroll.rateLimited(req.ip)) return res.status(429).render('home', homeLocals(req, { enrollErrors: [{ az: 'Bir az sonra yenidən cəhd edin.', en: 'Too many tries from this network. Please wait a few minutes and try again.' }], enrollValues: { name: String(req.body.name||''), phone: String(req.body.phone||''), whatsapp: String(req.body.whatsapp||''), classes: enroll.validate(req.body).codes } }));
+  const r = enroll.submit(req.body);
+  if (r.spam) return res.redirect('/?tesekkur=1#qeydiyyat');
+  if (r.closed) return res.status(403).render('home', homeLocals(req));
+  if (!r.ok) return res.status(400).render('home', homeLocals(req, { enrollThanks: false, enrollErrors: r.errors, enrollValues: r.values || {} }));
+  audit(req, 'enrollment.request', { id: r.id, student_id: r.student_id, existing: r.existing, enrolled: r.enrolled, full: r.full });
+  res.redirect('/?tesekkur=1#qeydiyyat');
+});
 app.get('/login', (req, res) => res.render('login', { title: 'Sign in', error: null, next: req.query.next || '' }));
 const attempts = new Map();
 app.post('/login', (req, res) => {
@@ -158,7 +185,7 @@ app.post('/logout', (req, res) => req.session.destroy(() => res.redirect('/')));
 
 // Admin dashboard
 const A = need('admin'); const T = need('admin', 'teacher');
-app.get('/admin', A, (req, res) => { const r = bots.weeklyReport(); res.render('admin/dashboard', { title: 'Dashboard', r, bots: bots.BOTS,
+app.get('/admin', A, (req, res) => { const r = bots.weeklyReport(); res.render('admin/dashboard', { title: 'Dashboard', r, bots: bots.BOTS, enrollPending: enroll.pendingCount(),
   recentWa: db.prepare(`SELECT * FROM whatsapp_messages ORDER BY received_at DESC LIMIT 5`).all() }); });
 
 // Students
@@ -168,7 +195,7 @@ app.get('/admin/students', A, (req, res) => {
   res.render('admin/students', { title: 'Roster', students });
 });
 app.post('/admin/students', A, (req, res) => { const b = req.body; if (!b.name?.trim()) { flash(req, 'Name is required.'); return res.redirect('/admin/students'); }
-  const r = db.prepare('INSERT INTO students (name, preferred_language, whatsapp_phone, email, status, notes) VALUES (?,?,?,?,?,?)').run(b.name.trim(), b.preferred_language || 'az', b.whatsapp_phone || null, b.email || null, b.status || 'applicant', b.notes || null);
+  const r = db.prepare('INSERT INTO students (name, preferred_language, phone, whatsapp_phone, email, status, notes) VALUES (?,?,?,?,?,?,?)').run(b.name.trim(), b.preferred_language || 'az', b.phone || null, b.whatsapp_phone || null, b.email || null, b.status || 'applicant', b.notes || null);
   audit(req, 'student.create', { id: r.lastInsertRowid }); flash(req, 'Student added.'); res.redirect('/admin/students/' + r.lastInsertRowid); });
 app.get('/admin/students/:id', A, (req, res) => {
   const s = db.prepare('SELECT * FROM students WHERE id=?').get(req.params.id); if (!s) return res.status(404).render('error', { title: 'Not found', msg: 'No such student.' });
@@ -179,9 +206,25 @@ app.get('/admin/students/:id', A, (req, res) => {
     msgs: db.prepare(`SELECT * FROM whatsapp_messages WHERE student_id=? ORDER BY received_at DESC`).all(s.id) });
 });
 app.post('/admin/students/:id', A, (req, res) => { const b = req.body;
-  db.prepare('UPDATE students SET name=?, preferred_language=?, whatsapp_phone=?, email=?, status=?, notes=? WHERE id=?').run(b.name, b.preferred_language || 'az', b.whatsapp_phone || null, b.email || null, b.status, b.notes || null, req.params.id);
+  db.prepare('UPDATE students SET name=?, preferred_language=?, phone=?, whatsapp_phone=?, email=?, status=?, notes=? WHERE id=?').run(b.name, b.preferred_language || 'az', b.phone || null, b.whatsapp_phone || null, b.email || null, b.status, b.notes || null, req.params.id);
   audit(req, 'student.update', { id: req.params.id }); flash(req, 'Saved.'); res.redirect('/admin/students/' + req.params.id); });
 app.post('/admin/students/:id/enroll', A, (req, res) => { db.prepare('INSERT OR IGNORE INTO enrollments (student_id, section_id) VALUES (?,?)').run(req.params.id, req.body.section_id); flash(req, 'Enrolled.'); res.redirect('/admin/students/' + req.params.id); });
+app.post('/admin/students/:id/login', A, (req, res) => {
+  if (String(req.body.password || '') !== String(req.body.confirm_password || '')) { flash(req, 'Password and confirmation do not match.'); return res.redirect('/admin/students/' + req.params.id); }
+  const r = enroll.createLogin(req.params.id, { email: req.body.email, password: req.body.password });
+  if (!r.ok) { flash(req, r.error); return res.redirect('/admin/students/' + req.params.id); }
+  audit(req, 'student.login.create', { id: Number(req.params.id), user_id: r.user_id });
+  flash(req, 'Login created. The student can now sign in and scan QR check-in codes.');
+  res.redirect('/admin/students/' + req.params.id);
+});
+app.get('/admin/enrollments', A, (req, res) => res.render('admin/enrollments', { title: 'Enrollment requests', wide: true, rows: enroll.list() }));
+app.post('/admin/enrollments/:id/notified', A, (req, res) => { enroll.markNotified(req.params.id); flash(req, 'Marked as notified.'); res.redirect('/admin/enrollments'); });
+app.post('/admin/enrollments/:id/discard', A, (req, res) => {
+  const r = enroll.discard(req.params.id);
+  flash(req, r.ok ? 'Enrollment request removed.' : (r.error || 'Could not remove that request.'));
+  if (r.ok) audit(req, 'enrollment.discard', { id: r.id, student_id: r.student_id });
+  res.redirect('/admin/enrollments');
+});
 
 // Classes
 app.get('/admin/classes', T, (req, res) => res.render('admin/classes', { title: 'Classes', sections: db.prepare(`SELECT sec.*, c.code, c.title, c.title_az, t.name teacher, (SELECT COUNT(*) FROM enrollments e WHERE e.section_id=sec.id) n FROM sections sec JOIN courses c ON c.id=sec.course_id LEFT JOIN teachers t ON t.id=sec.teacher_id ORDER BY c.code`).all() }));

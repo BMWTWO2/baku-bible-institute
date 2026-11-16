@@ -2,9 +2,20 @@
 <div class="pagehead rise"><div><p class="eyebrow"><a href="/admin/students">Roster</a></p><h1><%= s.name %></h1></div></div>
 <div class="cols rise d1"><form method="post" class="card formgrid"><input type="hidden" name="_csrf" value="<%= csrf %>"><h2 class="span">Profile</h2>
 <label>Name<input name="name" value="<%= s.name %>" required></label><label>Preferred language<select name="preferred_language"><% ['az','ru','en'].forEach(l=>{ %><option <%= s.preferred_language===l?'selected':'' %>><%= l %></option><% }) %></select></label>
-<label>WhatsApp<input name="whatsapp_phone" value="<%= s.whatsapp_phone||'' %>"></label><label>Email<input name="email" value="<%= s.email||'' %>"></label>
+<label>Phone<input name="phone" value="<%= s.phone||'' %>" placeholder="+994…"></label><label>WhatsApp<input name="whatsapp_phone" value="<%= s.whatsapp_phone||'' %>"></label>
+<label>Email<input name="email" value="<%= s.email||'' %>"></label>
 <label>Status<select name="status"><% ['applicant','active','paused','graduated','withdrawn'].forEach(l=>{ %><option <%= s.status===l?'selected':'' %>><%= l %></option><% }) %></select></label>
 <label class="span">Notes<textarea name="notes"><%= s.notes||'' %></textarea></label><button class="btn">Save</button></form>
+
+<% if (!s.user_id) { %>
+<section class="card rise" style="margin-top:18px"><h2>No login yet</h2>
+<p class="muted">This student can appear on the roster, in class lists, and on the attendance QR roster, but cannot sign in or scan a check-in code until you create a login.</p>
+<form method="post" action="/admin/students/<%= s.id %>/login" class="formgrid"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<label>Email<input name="email" type="email" required value="<%= s.email||'' %>" autocomplete="off"></label>
+<label>Password (12+ characters)<input name="password" type="password" minlength="12" required autocomplete="new-password"></label>
+<label>Confirm password<input name="confirm_password" type="password" minlength="12" required autocomplete="new-password"></label>
+<button class="btn">Create login</button></form></section>
+<% } else { %><p class="muted small">Login is set up. Sign-in email: <b><%= s.email || 'see user account' %></b></p><% } %>
 <section class="card"><h2>Classes</h2><ul><% enr.forEach(e=>{ const av=avgs.find(x=>x.section_id===e.section_id); %><li><b><%= e.code %></b> — <%= e.title %> · average <b><%= av && av.pct!=null ? av.pct+'%' : '—' %></b>
 <form method="post" action="/admin/enrollments/<%= e.id %>/final" class="row"><input type="hidden" name="_csrf" value="<%= csrf %>"><label class="small">Final course grade <input name="final_grade" value="<%= e.final_grade||'' %>" maxlength="20" placeholder="e.g. A or 92" style="width:130px"></label><button class="btn sm">Save</button></form></li><% }) %></ul>
 <form method="post" action="/admin/students/<%= s.id %>/enroll" class="row"><input type="hidden" name="_csrf" value="<%= csrf %>"><select name="section_id"><% sections.forEach(x=>{ %><option value="<%= x.id %>"><%= x.code %> <%= x.title %></option><% }) %></select><button class="btn sm">Enroll</button></form>

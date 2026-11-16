@@ -3,8 +3,9 @@ const db = require('./db'); const inbound = require('./inbound');
 const digits = s => String(s || '').replace(/\D/g, '');
 function matchStudent(phone) {
   const d = digits(phone); if (!d) return null;
-  const rows = db.prepare(`SELECT s.*, u.email AS user_email FROM students s LEFT JOIN users u ON u.id=s.user_id WHERE s.whatsapp_phone IS NOT NULL`).all();
-  return rows.find(r => { const p = digits(r.whatsapp_phone); return p && (p === d || p.endsWith(d.slice(-9)) && d.length >= 9); }) || null;
+  const rows = db.prepare(`SELECT s.*, u.email AS user_email FROM students s LEFT JOIN users u ON u.id=s.user_id WHERE (s.whatsapp_phone IS NOT NULL AND s.whatsapp_phone<>'') OR (s.phone IS NOT NULL AND s.phone<>'')`).all();
+  const hit = p => { const x = digits(p); return x && (x === d || (x.length >= 9 && d.length >= 9 && (x.endsWith(d.slice(-9)) || d.endsWith(x.slice(-9))))); };
+  return rows.find(r => hit(r.whatsapp_phone) || hit(r.phone)) || null;
 }
 function extractMedia(m) {
   const out = [];
