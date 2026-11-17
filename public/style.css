@@ -97,4 +97,4 @@ a.notes-link{display:block;text-decoration:none;color:inherit;border-left:4px so
 .hp{position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden}
 @media(min-width:700px){.enroll-card{padding:32px 36px}}
 
-.qr-nologin{background:#fbf3df;border-left-color:var(--gold);margin-top:10px;line-height:1.5}
+.qr-nologin{background:#fbf3df;border-left-color:var(--gold);margin:10px 0 16px;line-height:1.5}
