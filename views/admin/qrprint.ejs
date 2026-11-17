@@ -6,5 +6,6 @@
 <img src="<%= qr %>" alt="QR check-in code" class="qr-img">
 <p class="qr-date"><%= attqr.fmtAz(code.valid_from) %> – <%= attqr.fmtAz(code.valid_until) %> (Bakı vaxtı, UTC+4)</p>
 <p>Telefonunuzun kamerası ilə skan edin — davamiyyətiniz dərhal qeyd olunacaq. (İlk dəfə bir dəfə daxil olun.)<br><span class="muted">Scan with your phone camera — your attendance is recorded at once. (Sign in once the first time.)</span></p>
+<p class="noprint small muted">Teacher: students without a login yet are not marked absent automatically — mark them present by hand.</p>
 <p class="noprint"><button class="btn" type="button" data-print>Print</button> <a href="<%= base %>">Back</a></p>
 </div></body></html>

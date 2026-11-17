@@ -36,8 +36,8 @@ try {
   const anon = agent(); let r = await anon.req('/qeyd/' + tok); assert.equal(r.status, 302); assert.equal(r.headers.get('location'), '/login?next=' + encodeURIComponent('/qeyd/' + tok));
   assert.equal((await anon.req(base + '.png')).status, 302); step('anonymous scan → sign-in with return path; images need sign-in');
   r = await anon.req('/login?next=' + encodeURIComponent('/qeyd/' + tok)); let lh = await r.text();
-  assert.match(lh, /Davamiyyət üçün bir dəfə daxil olun\. Telefonunuz yadda saxlanılacaq\./); assert.match(lh, new RegExp('name="next" value="/qeyd/' + tok + '"'));
-  assert.doesNotMatch(await (await anon.req('/login')).text(), /Telefonunuz yadda/); step('login page shows the one-time Azeri note only for a QR return path');
+  assert.match(lh, /Davamiyyət üçün bir dəfə daxil olun\. Telefonunuz yadda saxlanılacaq\./); assert.match(lh, /Hələ girişiniz \(login\) yoxdur\?/); assert.match(lh, /Pastor Bruce sizə tezliklə giriş məlumatlarınızı göndərəcək/); assert.match(lh, new RegExp('name="next" value="/qeyd/' + tok + '"'));
+  { const ph = await (await anon.req('/login')).text(); assert.doesNotMatch(ph, /Telefonunuz yadda/); assert.doesNotMatch(ph, /girişiniz \(login\) yoxdur/); } step('login page shows the one-time Azeri note only for a QR return path');
   const evil = agent(); r = await evil.login('s3@test.invalid', '//evil.example/x'); assert.equal(r.headers.get('location'), '/telebe');
   r = await evil.login('s3@test.invalid', '/\\evil.example'); assert.equal(r.headers.get('location'), '/telebe'); step('open redirects in next are refused');
 
@@ -75,25 +75,32 @@ try {
   assert.equal(db.prepare('SELECT status FROM attendance WHERE student_id=2').get().status, 'excused');
   step('teacher manual mark wins over a later scan; re-saving keeps the QR origin');
   // No scan = absent: add a student who never scans, end the week, run the hourly close.
-  db.prepare("INSERT INTO students (name,status) VALUES ('Never Scans','active')").run(); db.prepare('INSERT INTO enrollments (student_id,section_id) VALUES (4,1)').run();
-  r = await (await t.req(base + '/roster.json')).json(); assert.deepEqual(r.missing.map(x => x.name), ['Never Scans']);
+  const nsu = db.prepare("INSERT INTO users (email,password_hash,role,name) VALUES ('ns@test.invalid','x','student','Never Scans')").run().lastInsertRowid;
+  db.prepare("INSERT INTO students (user_id,name,status) VALUES (?,'Never Scans','active')").run(nsu); db.prepare('INSERT INTO enrollments (student_id,section_id) VALUES (4,1)').run();
+  db.prepare("INSERT INTO students (name,status) VALUES ('No Login Applicant','applicant')").run(); db.prepare('INSERT INTO enrollments (student_id,section_id) VALUES (5,1)').run();
+  r = await (await t.req(base + '/roster.json')).json(); assert.deepEqual(r.missing.map(x => [x.name, x.no_login]), [['Never Scans', false], ['No Login Applicant', true]]);
+  let th = await (await t.req(base)).text(); assert.match(th, /Students without a login yet are not marked absent automatically — mark them present by hand/); assert.match(th, /No Login Applicant <span class="muted">no login — mark by hand/);
+  assert.match(await (await t.req(base + '/print')).text(), /students without a login yet are not marked absent automatically — mark them present by hand/);
+  th = await (await t.req('/admin/attendance?section=1')).text(); assert.match(th, /No login yet — mark these students by hand/); assert.match(th, /<b>No Login Applicant<\/b>/); assert.doesNotMatch(th, /<b>Never Scans<\/b>/);
+  step('teacher sees who has no login (QR page, print page note, Attendance page)');
   db.close();
   const cr = spawnSync(process.execPath, ['-e', `process.env.DB_PATH=${JSON.stringify(dbPath)}; const a=require('./src/attqr'); const db=require('./src/db');
     console.log(JSON.stringify(a.closePastWeeks()));
     db.prepare("UPDATE attendance_codes SET valid_from=date('now','-10 day'), valid_until=date('now','-4 day') WHERE week_no=1").run();
     console.log(JSON.stringify(a.closePastWeeks())); console.log(JSON.stringify(a.closePastWeeks()));
-    db.prepare("INSERT INTO students (name,status) VALUES ('Late Joiner','active')").run(); db.prepare('INSERT INTO enrollments (student_id,section_id) VALUES (5,1)').run();
+    db.prepare("INSERT INTO students (name,status) VALUES ('Late Joiner','active')").run(); db.prepare('INSERT INTO enrollments (student_id,section_id) VALUES (6,1)').run();
     console.log(JSON.stringify(a.closePastWeeks()));`], { cwd: root, env: { ...process.env, DATABASE_URL: '' }, encoding: 'utf8' });
   assert.equal(cr.status, 0, cr.stderr); const outs = cr.stdout.trim().split('\n').map(x => JSON.parse(x));
   assert.deepEqual(outs[0], { absent: 0, closed: 0 }); assert.equal(outs[1].absent, 1); assert.equal(outs[2].closed, 0); assert.deepEqual(outs[3], { absent: 0, closed: 0 });
   const db2 = new (require('better-sqlite3'))(dbPath);
   assert.equal(db2.prepare('SELECT status FROM attendance WHERE student_id=4').get().status, 'absent');
   assert.equal(db2.prepare('SELECT status FROM attendance WHERE student_id=2').get().status, 'excused');
-  assert.equal(db2.prepare('SELECT COUNT(*) n FROM attendance WHERE student_id=5').get().n, 0);
+  assert.equal(db2.prepare('SELECT COUNT(*) n FROM attendance WHERE student_id=5').get().n, 0, 'no-login applicant must not be auto-absent');
+  assert.equal(db2.prepare('SELECT COUNT(*) n FROM attendance WHERE student_id=6').get().n, 0);
   const pts = Object.fromEntries(db2.prepare("SELECT g.student_id, g.points FROM grades g JOIN grade_items gi ON gi.id=g.grade_item_id WHERE gi.kind='attendance'").all().map(x => [x.student_id, x.points]));
   assert.deepEqual(pts, { 1: 50, 2: 50, 4: 0 });
   db2.prepare("UPDATE attendance_codes SET valid_from=date('now','-1 day'), valid_until=date('now','+5 day') WHERE week_no=1").run();
-  db2.close(); step('week over: no scan = absent (0 pts) once; excused keeps credit; teacher marks untouched; later enrollee not back-filled');
+  db2.close(); step('week over: no scan = absent (0 pts) once; excused keeps credit; teacher marks untouched; later enrollee and no-login students not auto-absent');
 
   const s3 = agent(); await s3.login('s3@test.invalid'); r = await s3.req('/qeyd/' + tok); assert.match(await r.text(), /qeydiyyatda deyilsiniz/);
   r = await s1.req('/qeyd/not-a-real-token'); assert.equal(r.status, 404); assert.match(await r.text(), /tanınmadı/);

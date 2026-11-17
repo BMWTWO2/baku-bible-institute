@@ -237,7 +237,8 @@ app.get('/admin/classes', T, (req, res) => res.render('admin/classes', { title: 
 // Attendance
 app.get('/admin/attendance', T, (req, res) => {
   const sections = sectionsList(); const sid = Number(req.query.section || sections[0]?.id); const date = req.query.date || new Date().toISOString().slice(0, 10);
-  const roster = db.prepare(`SELECT s.id, s.name, (SELECT a.status FROM attendance a JOIN class_sessions cs ON cs.id=a.session_id WHERE cs.section_id=? AND cs.session_date=? AND a.student_id=s.id) status FROM enrollments e JOIN students s ON s.id=e.student_id WHERE e.section_id=? ORDER BY s.name`).all(sid, date, sid);
+  const roster = db.prepare(`SELECT s.id, s.name, (SELECT a.status FROM attendance a JOIN class_sessions cs ON cs.id=a.session_id WHERE cs.section_id=? AND cs.session_date=? AND a.student_id=s.id) status,
+    (SELECT COUNT(*) FROM users u WHERE u.id=s.user_id)=0 no_login FROM enrollments e JOIN students s ON s.id=e.student_id WHERE e.section_id=? ORDER BY s.name`).all(sid, date, sid);
   const all = bots.unexcused(); res.render('admin/attendance', { title: 'Attendance', sections, sid, date, roster, flags: all.filter(x => x.n > 2), watch: all.filter(x => x.n === 2) });
 });
 const markAtt = (section_id, date, student_id, status, note, source) => {

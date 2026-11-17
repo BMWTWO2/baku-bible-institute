@@ -96,3 +96,5 @@ a.notes-link{display:block;text-decoration:none;color:inherit;border-left:4px so
 .enroll-errors li{margin:4px 0}
 .hp{position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden}
 @media(min-width:700px){.enroll-card{padding:32px 36px}}
+
+.qr-nologin{background:#fbf3df;border-left-color:var(--gold);margin-top:10px;line-height:1.5}

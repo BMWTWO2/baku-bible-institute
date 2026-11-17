@@ -4,8 +4,11 @@
 <% if (!flags.length) { %><p class="muted">No students flagged.</p><% } %>
 <div class="flaggrid"><% flags.forEach(f=>{ %><a class="flag" href="/admin/students/<%= f.id %>"><b><%= f.name %></b><span><%= f.n %> unexcused · <%= f.code %></span></a><% }) %></div>
 <% if (watch.length) { %><p class="small muted">Watch list (exactly 2): <%= watch.map(w=>w.name+' ('+w.code+')').join(', ') %></p><% } %><p class="small muted">Excused absences never count toward a flag.</p></section>
+<% const nl = roster.filter(r=>r.no_login); if (nl.length) { %><section class="card rise d2"><h2>No login yet — mark these students by hand</h2>
+<p class="small muted">They cannot scan the QR code yet, so they are never marked absent automatically. Mark them present below when they come to class.</p>
+<div class="flaggrid"><% nl.forEach(r=>{ %><a class="flag" href="/admin/students/<%= r.id %>"><b><%= r.name %></b><span>no login<%= r.status ? ' · ' + r.status : '' %></span></a><% }) %></div></section><% } %>
 <section class="card rise d2"><form method="get" class="row"><select name="section"><% sections.forEach(s=>{ %><option value="<%= s.id %>" <%= s.id===sid?'selected':'' %>><%= s.code %> <%= s.title %></option><% }) %></select><input type="date" name="date" value="<%= date %>"><button class="btn sm">Load</button></form>
 <form method="post"><input type="hidden" name="_csrf" value="<%= csrf %>"><input type="hidden" name="section_id" value="<%= sid %>"><input type="hidden" name="date" value="<%= date %>">
 <table class="tbl"><thead><tr><th>Student</th><th>Present</th><th>Late</th><th>Absent</th><th>Excused</th></tr></thead><tbody>
-<% roster.forEach(r=>{ %><tr><td><%= r.name %></td><% ['present','late','absent','excused'].forEach(st=>{ %><td><input type="radio" name="s_<%= r.id %>" value="<%= st %>" <%= r.status===st?'checked':'' %>></td><% }) %></tr><% }) %></tbody></table><button class="btn">Save attendance</button></form></section>
+<% roster.forEach(r=>{ %><tr><td><%= r.name %><% if (r.no_login) { %> <span class="pill amber">no login</span><% } %></td><% ['present','late','absent','excused'].forEach(st=>{ %><td><input type="radio" name="s_<%= r.id %>" value="<%= st %>" <%= r.status===st?'checked':'' %>></td><% }) %></tr><% }) %></tbody></table><button class="btn">Save attendance</button></form></section>
 <%- include('../partials/foot') %>

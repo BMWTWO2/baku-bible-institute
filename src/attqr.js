@@ -82,15 +82,18 @@ function checkIn(token, user) {
 // ---- Live roster for a code ----
 function roster(code) {
   const sid = code.session_id;
-  const rows = db.prepare(`SELECT s.id, s.name, a.status, a.source, a.recorded_at FROM enrollments e JOIN students s ON s.id=e.student_id
+  const rows = db.prepare(`SELECT s.id, s.name, a.status, a.source, a.recorded_at, (u.id IS NOT NULL) has_login FROM enrollments e JOIN students s ON s.id=e.student_id
+    LEFT JOIN users u ON u.id=s.user_id
     LEFT JOIN attendance a ON a.student_id=s.id AND a.session_id=? WHERE e.section_id=? AND s.status IN ('active','applicant','paused') ORDER BY s.name`).all(sid || -1, code.section_id);
-  const out = rows.map(r => ({ id: r.id, name: r.name, status: r.status || null, source: r.source || null,
+  const out = rows.map(r => ({ id: r.id, name: r.name, status: r.status || null, source: r.source || null, no_login: !r.has_login,
     time: r.recorded_at ? new Date(Date.parse(r.recorded_at.replace(' ', 'T') + 'Z') + BAKU_MS).toISOString().slice(11, 16) : null }));
   return { scanned: out.filter(r => r.status && r.source === 'qr'), marked: out.filter(r => r.status && r.source !== 'qr'), missing: out.filter(r => !r.status), total: out.length };
 }
-function markRestAbsent(code) {
+// opts.loginOnly (used by the automatic end-of-week close): skip students with no login yet — they cannot scan,
+// so they are never marked absent automatically; the teacher marks them by hand.
+function markRestAbsent(code, opts = {}) {
   const sid = sessionFor(code); let n = 0;
-  db.transaction(() => { for (const r of roster(code).missing) n += db.prepare(`INSERT OR IGNORE INTO attendance (session_id, student_id, status, note, source) VALUES (?,?, 'absent', 'No QR scan', 'manual')`).run(sid, r.id).changes; recomputeGrades(code.section_id); })();
+  db.transaction(() => { for (const r of roster(code).missing.filter(x => !opts.loginOnly || !x.no_login)) n += db.prepare(`INSERT OR IGNORE INTO attendance (session_id, student_id, status, note, source) VALUES (?,?, 'absent', 'No QR scan', 'manual')`).run(sid, r.id).changes; recomputeGrades(code.section_id); })();
   return n;
 }
 
@@ -118,13 +121,13 @@ function recomputeGrades(sectionId) {
   let n = 0; for (const r of rows) { const d = Math.min(SESSIONS, r.marked); n += up.run(it.id, r.student_id, Math.round(100 * it.max_points * Math.min(r.credit, d) / d) / 100).changes; }
   return n;
 }
-// No scan = absent. Once a code's Baku week is over, each enrolled student with no mark for that session gets 'absent'
+// No scan = absent. Once a code's Baku week is over, each enrolled student WITH A LOGIN and no mark for that session gets 'absent'
 // (source 'manual', note 'No QR scan') — only if the class was held (at least one mark). Returns { absent, closed }. Each code is closed once
 // (closed_at), so later enrollees are never back-filled. INSERT OR IGNORE: scans and teacher marks are never changed.
 function closePastWeeks() {
   const today = bakuDate(); let n = 0, closed = 0;
   for (const c of db.prepare(`SELECT * FROM attendance_codes WHERE closed_at IS NULL AND valid_until < ?`).all(today)) {
-    if (c.session_id && db.prepare('SELECT 1 FROM attendance WHERE session_id=? LIMIT 1').get(c.session_id)) n += markRestAbsent(c);
+    if (c.session_id && db.prepare('SELECT 1 FROM attendance WHERE session_id=? LIMIT 1').get(c.session_id)) n += markRestAbsent(c, { loginOnly: true });
     closed += db.prepare('UPDATE attendance_codes SET closed_at=CURRENT_TIMESTAMP WHERE id=?').run(c.id).changes;
   }
   return { absent: n, closed };

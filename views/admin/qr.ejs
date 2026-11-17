@@ -23,9 +23,10 @@
   </section>
   <section class="card qr-live"><h2>Live roster <span class="small muted" data-updated></span></h2>
     <p class="qr-count"><b data-n-scanned><%= r.scanned.length + r.marked.length %></b> / <span data-n-total><%= r.total %></span> recorded</p>
-    <h3>Not yet scanned</h3><ul class="qr-list miss" data-missing><% r.missing.forEach(x=>{ %><li><%= x.name %></li><% }) %><% if (!r.missing.length) { %><li class="muted">Everyone is in ✓</li><% } %></ul>
+    <h3>Not yet scanned</h3><ul class="qr-list miss" data-missing><% r.missing.forEach(x=>{ %><li><%= x.name %><% if (x.no_login) { %> <span class="muted">no login — mark by hand</span><% } %></li><% }) %><% if (!r.missing.length) { %><li class="muted">Everyone is in ✓</li><% } %></ul>
     <h3>Scanned</h3><ul class="qr-list ok" data-scanned><% r.scanned.forEach(x=>{ %><li><%= x.name %> <span class="muted"><%= x.time %></span></li><% }) %></ul>
     <h3>Marked by teacher</h3><ul class="qr-list" data-marked><% r.marked.forEach(x=>{ %><li><%= x.name %> <span class="muted"><%= x.status %></span></li><% }) %></ul>
+    <p class="note small"><b>Students without a login yet are not marked absent automatically — mark them present by hand</b> on the <a href="/admin/attendance?section=<%= sec.id %>">Attendance page</a>.</p>
     <p class="small muted">Refreshes every 5 seconds. A teacher's manual mark is never overwritten by a scan. Scanning = present. Anyone still not scanned when this week ends (<%= attqr.fmtEn(code.valid_until) %>, Baku) is marked absent automatically; you can change any mark on the Attendance page.</p>
     <% if (live || today > code.valid_until) { %><form method="post" action="<%= base %>/absent" data-confirm="Mark everyone who has not scanned as absent?"><input type="hidden" name="_csrf" value="<%= csrf %>"><button class="btn sm ghost">After class: mark the rest absent</button></form><% } %>
   </section>

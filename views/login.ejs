@@ -1,6 +1,7 @@
 <%- include('partials/head') %>
 <section class="login rise"><div class="card"><h1>Welcome · Xoş gəlmisiniz</h1><p class="muted">Sign in to the Baku Bible Institute portal.</p>
-<% if (typeof qrNote !== 'undefined' && qrNote) { %><p class="note qr-note">📱 Davamiyyət üçün bir dəfə daxil olun. Telefonunuz yadda saxlanılacaq.</p><% } %>
+<% if (typeof qrNote !== 'undefined' && qrNote) { %><p class="note qr-note">📱 Davamiyyət üçün bir dəfə daxil olun. Telefonunuz yadda saxlanılacaq.</p>
+<div class="note qr-nologin"><b>Hələ girişiniz (login) yoxdur?</b> Narahat olmayın. Müəlliminizə yaxınlaşın — o, sizi bu gün dərsdə iştirak etmiş kimi qeyd edəcək. Pastor Bruce sizə tezliklə giriş məlumatlarınızı göndərəcək.</div><% } %>
 <% if (error) { %><p class="err"><%= error %></p><% } %>
 <form method="post" action="/login"><input type="hidden" name="_csrf" value="<%= csrf %>"><input type="hidden" name="next" value="<%= next %>">
 <label>Email<input name="email" type="email" required autocomplete="username"></label><label>Password · Şifrə<input name="password" type="password" required autocomplete="current-password"></label><button class="btn full">Daxil ol · Sign in</button></form>
