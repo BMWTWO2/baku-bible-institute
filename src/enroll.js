@@ -1,5 +1,6 @@
 // Temporary homepage quick-enrollment (closes at ENROLLMENT_CLOSES_AT, default end of this week).
 // Creates or reuses a roster record (no login yet) and enrolls into THG 101 / ECC 101 when seats remain.
+const crypto = require('crypto');
 const db = require('./db');
 
 const COURSES = [
@@ -31,6 +32,26 @@ db.exec(`CREATE TABLE IF NOT EXISTS enrollment_requests (
 db.exec(`CREATE INDEX IF NOT EXISTS enrollment_requests_notified ON enrollment_requests(notified)`);
 const addCol = (t, c, def) => { if (!db.prepare(`PRAGMA table_info(${t})`).all().some(x => x.name === c)) db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${def}`); };
 addCol('students', 'phone', 'TEXT');
+addCol('enrollment_requests', 'email', 'TEXT');
+addCol('enrollment_requests', 'note', 'TEXT');
+addCol('enrollment_requests', 'token', 'TEXT');
+addCol('enrollment_requests', 'section_id', 'INTEGER');
+addCol('enrollment_requests', 'session_id', 'INTEGER');
+addCol('enrollment_requests', 'week_no', 'INTEGER');
+addCol('enrollment_requests', 'course_code', 'TEXT');
+addCol('enrollment_requests', 'review_status', "TEXT NOT NULL DEFAULT 'received'");
+db.exec(`CREATE TABLE IF NOT EXISTS login_welcomes (
+  id INTEGER PRIMARY KEY,
+  student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  email TEXT NOT NULL,
+  name TEXT NOT NULL,
+  temp_password TEXT NOT NULL,
+  source TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  emailed_at TEXT
+)`);
+db.exec(`CREATE INDEX IF NOT EXISTS login_welcomes_emailed ON login_welcomes(emailed_at)`);
 
 const digits = s => String(s || '').replace(/\D/g, '');
 
@@ -56,6 +77,14 @@ function findByPhone(phone) {
   if (!digits(want)) return null;
   const rows = db.prepare(`SELECT * FROM students WHERE (phone IS NOT NULL AND phone<>'') OR (whatsapp_phone IS NOT NULL AND whatsapp_phone<>'')`).all();
   return rows.find(r => phonesMatch(r.phone, want) || phonesMatch(r.whatsapp_phone, want)) || null;
+}
+
+function findByEmail(email) {
+  const em = String(email || '').trim().toLowerCase();
+  if (!em) return null;
+  return db.prepare('SELECT * FROM students WHERE lower(email)=?').get(em)
+    || db.prepare('SELECT s.* FROM students s JOIN users u ON u.id=s.user_id WHERE lower(u.email)=?').get(em)
+    || null;
 }
 
 function closeAt() {
@@ -185,7 +214,16 @@ function serialize(r) {
     existing_student: !!r.existing_student,
     review_flag: r.review_flag,
     notified: !!r.notified,
-    notified_at: r.notified_at || null
+    notified_at: r.notified_at || null,
+    email: r.email || null,
+    note: r.note || null,
+    token: r.token || null,
+    section_id: r.section_id || null,
+    session_id: r.session_id || null,
+    week_no: r.week_no || null,
+    course_code: r.course_code || null,
+    review_status: r.review_status || 'received',
+    via: (r.source || '').startsWith('QR self-enroll') ? 'qr' : 'homepage'
   };
 }
 
@@ -263,6 +301,8 @@ function createLogin(studentId, { email, password, name } = {}) {
   const uid = db.prepare('INSERT INTO users (email, password_hash, role, name) VALUES (?,?,?,?)')
     .run(em, bcrypt.hashSync(pw, 10), 'student', name || st.name).lastInsertRowid;
   db.prepare('UPDATE students SET user_id=?, email=COALESCE(NULLIF(email,\'\'), ?) WHERE id=?').run(uid, em, st.id);
+  const src = String((arguments[1] && arguments[1].source) || 'admin-create-login').slice(0, 80);
+  storeWelcome({ student_id: st.id, user_id: uid, email: em, name: name || st.name, password: pw, source: src });
   return { ok: true, user_id: uid, email: em };
 }
 
@@ -282,7 +322,210 @@ function pageData() {
   };
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateQr(body) {
+  const errors = [];
+  const name = String(body?.name || '').trim().replace(/\s+/g, ' ');
+  if (name.length < 2) errors.push({ field: 'name', az: 'Zəhmət olmasa adınızı və soyadınızı yazın.', en: 'Please enter your full name.' });
+  else if (name.length > 80) errors.push({ field: 'name', az: 'Ad çox uzundur.', en: 'That name is too long.' });
+  const email = String(body?.email || '').trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) errors.push({ field: 'email', az: 'Zəhmət olmasa doğru email ünvanı yazın.', en: 'Please enter a valid email address.' });
+  const phone = normalizePhone(body?.whatsapp || body?.whatsapp_phone || body?.phone);
+  if (!phone) errors.push({ field: 'whatsapp', az: 'Zəhmət olmasa WhatsApp nömrənizi yazın.', en: 'Please enter your WhatsApp number.' });
+  const note = String(body?.note || '').trim().slice(0, 500);
+  return { errors, name, email, phone, note };
+}
+
+function qrSource(code) {
+  return `QR self-enroll · ${code.code} · week ${code.week_no}`;
+}
+
+// Self-enroll from a live weekly QR token. Not tied to the homepage form close date.
+function submitQr(body, code) {
+  const attqr = require('./attqr');
+  if (!code || !attqr.isLive(code)) return { ok: false, expired: true };
+  if (isHoneypot(body)) return { ok: true, spam: true };
+  const v = validateQr(body);
+  const values = { name: v.name, email: String(body?.email || ''), whatsapp: String(body?.whatsapp || body?.whatsapp_phone || body?.phone || ''), note: v.note };
+  if (v.errors.length) return { ok: false, errors: v.errors, values };
+
+  const existingUser = db.prepare('SELECT id FROM users WHERE lower(email)=?').get(v.email);
+  if (existingUser) return { ok: false, has_login: true, values };
+
+  const prior = db.prepare(`SELECT * FROM enrollment_requests WHERE lower(email)=? AND token=? AND review_status='pending'`).get(v.email, code.token);
+  if (prior) return { ok: true, already: true, id: prior.id, student_id: prior.student_id };
+
+  return db.transaction(() => {
+    let st = findByEmail(v.email) || findByPhone(v.phone);
+    const existing = !!st;
+    if (st && st.user_id) return { ok: false, has_login: true, values };
+    if (st) {
+      if (!st.email) db.prepare('UPDATE students SET email=? WHERE id=?').run(v.email, st.id);
+      if (!st.phone && v.phone) db.prepare('UPDATE students SET phone=? WHERE id=?').run(v.phone, st.id);
+      if (v.phone) db.prepare('UPDATE students SET whatsapp_phone=COALESCE(NULLIF(whatsapp_phone,\'\'), ?) WHERE id=?').run(v.phone, st.id);
+      st = db.prepare('SELECT * FROM students WHERE id=?').get(st.id);
+    } else {
+      const id = db.prepare(`INSERT INTO students (name, preferred_language, phone, whatsapp_phone, email, status, notes, user_id)
+        VALUES (?, 'az', ?, ?, ?, 'applicant', ?, NULL)`).run(v.name, v.phone, v.phone, v.email, 'QR self-enroll').lastInsertRowid;
+      st = db.prepare('SELECT * FROM students WHERE id=?').get(id);
+    }
+
+    const cap = Number(code.capacity || db.prepare('SELECT capacity FROM sections WHERE id=?').get(code.section_id)?.capacity || 20);
+    const already = !!db.prepare('SELECT 1 FROM enrollments WHERE student_id=? AND section_id=?').get(st.id, code.section_id);
+    const full = !already && seatCount(code.section_id) >= cap;
+    const enrolled = [];
+    if (!already) {
+      db.prepare('INSERT INTO enrollments (student_id, section_id) VALUES (?,?)').run(st.id, code.section_id);
+      enrolled.push(code.code);
+    }
+    if (!existing) db.prepare(`UPDATE students SET status='active' WHERE id=?`).run(st.id);
+
+    const sid = attqr.sessionFor(code);
+    const ex = db.prepare('SELECT * FROM attendance WHERE session_id=? AND student_id=?').get(sid, st.id);
+    if (!ex) {
+      db.prepare(`INSERT INTO attendance (session_id, student_id, status, note, source) VALUES (?,?, 'present', 'QR self-enroll (pending approval)', 'qr-pending')`).run(sid, st.id);
+    }
+    // Pending marks must not count toward the attendance grade until approved.
+    attqr.recomputeGrades(code.section_id);
+
+    const flag = reviewFlag({ existing, full: full ? [code.code] : [] });
+    const r = db.prepare(`INSERT INTO enrollment_requests
+      (source, name, phone, whatsapp_phone, email, note, classes, student_id, existing_student, review_flag, enrolled_codes, full_codes, notified, token, section_id, session_id, week_no, course_code, review_status)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,'pending')`)
+      .run(qrSource(code), v.name, v.phone, v.phone, v.email, v.note || null, JSON.stringify([code.code]), st.id, existing ? 1 : 0, flag, JSON.stringify(enrolled), JSON.stringify(full ? [code.code] : []),
+        code.token, code.section_id, sid, code.week_no, code.code);
+    return { ok: true, id: r.lastInsertRowid, student_id: st.id, existing, enrolled, already, full: full ? [code.code] : [], review_flag: flag };
+  })();
+}
+
+function generatePassword() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const bytes = crypto.randomBytes(16);
+  let s = '';
+  for (const b of bytes) s += alphabet[b % alphabet.length];
+  return s.slice(0, 4) + '-' + s.slice(4, 8) + '-' + s.slice(8, 12) + '-' + s.slice(12, 16);
+}
+
+function storeWelcome({ student_id, user_id, email, name, password, source }) {
+  const em = String(email || '').trim().toLowerCase();
+  const pw = String(password || '');
+  if (!student_id || !EMAIL_RE.test(em) || pw.length < 12) return null;
+  // Keep only the latest unset password for this login (older unused rows are replaced).
+  db.prepare(`DELETE FROM login_welcomes WHERE student_id=? AND emailed_at IS NULL`).run(student_id);
+  const r = db.prepare(`INSERT INTO login_welcomes (student_id, user_id, email, name, temp_password, source) VALUES (?,?,?,?,?,?)`)
+    .run(student_id, user_id || null, em, String(name || '').slice(0, 80), pw, String(source || '').slice(0, 80));
+  return r.lastInsertRowid;
+}
+
+function listWelcomes({ pending } = {}) {
+  const rows = pending
+    ? db.prepare('SELECT * FROM login_welcomes WHERE emailed_at IS NULL ORDER BY id').all()
+    : db.prepare('SELECT * FROM login_welcomes ORDER BY id').all();
+  return rows.map(r => ({
+    id: r.id,
+    student_id: r.student_id,
+    user_id: r.user_id,
+    email: r.email,
+    name: r.name,
+    temp_password: r.temp_password,
+    source: r.source,
+    created_at: r.created_at,
+    emailed_at: r.emailed_at || null
+  }));
+}
+
+function getWelcome(id) {
+  const r = db.prepare('SELECT * FROM login_welcomes WHERE id=?').get(id);
+  if (!r) return null;
+  return { id: r.id, student_id: r.student_id, user_id: r.user_id, email: r.email, name: r.name, source: r.source, created_at: r.created_at, emailed_at: r.emailed_at || null };
+}
+
+function markWelcomeSent(id) {
+  const r = db.prepare(`UPDATE login_welcomes SET emailed_at=CURRENT_TIMESTAMP WHERE id=? AND emailed_at IS NULL`).run(id);
+  return r.changes > 0;
+}
+
+function approve(id) {
+  const attqr = require('./attqr');
+  const raw = db.prepare('SELECT * FROM enrollment_requests WHERE id=?').get(id);
+  if (!raw) return { ok: false, error: 'not found' };
+  if (raw.review_status === 'approved') return { ok: true, already: true, student_id: raw.student_id };
+  if (raw.review_status === 'rejected') return { ok: false, error: 'This request was already rejected.' };
+  if (!(raw.source || '').startsWith('QR self-enroll')) return { ok: false, error: 'Only QR self-enrollment requests are approved here.' };
+  return db.transaction(() => {
+    let st = raw.student_id ? db.prepare('SELECT * FROM students WHERE id=?').get(raw.student_id) : null;
+    if (!st) return { ok: false, error: 'Student record is missing.' };
+    if (raw.section_id) db.prepare('INSERT OR IGNORE INTO enrollments (student_id, section_id) VALUES (?,?)').run(st.id, raw.section_id);
+    db.prepare(`UPDATE students SET status='active', email=COALESCE(NULLIF(email,\'\'), ?) WHERE id=?`).run(raw.email, st.id);
+    st = db.prepare('SELECT * FROM students WHERE id=?').get(st.id);
+    let loginCreated = false;
+    if (!st.user_id) {
+      const email = String(raw.email || st.email || '').trim().toLowerCase();
+      const pw = generatePassword();
+      const r = createLogin(st.id, { email, password: pw, name: st.name, source: raw.source });
+      if (!r.ok) return { ok: false, error: r.error };
+      loginCreated = true;
+    }
+    if (raw.session_id) {
+      const att = db.prepare('SELECT * FROM attendance WHERE session_id=? AND student_id=?').get(raw.session_id, st.id);
+      if (att && att.source === 'qr-pending') {
+        db.prepare(`UPDATE attendance SET source='qr', note='QR check-in (self-enroll approved)' WHERE id=?`).run(att.id);
+      } else if (!att) {
+        db.prepare(`INSERT INTO attendance (session_id, student_id, status, note, source) VALUES (?,?, 'present', 'QR check-in (self-enroll approved)', 'qr')`).run(raw.session_id, st.id);
+      }
+      if (raw.section_id) attqr.recomputeGrades(raw.section_id);
+    }
+    db.prepare(`UPDATE enrollment_requests SET review_status='approved' WHERE id=?`).run(raw.id);
+    return { ok: true, student_id: st.id, login_created: loginCreated };
+  })();
+}
+
+function reject(id) {
+  const attqr = require('./attqr');
+  const raw = db.prepare('SELECT * FROM enrollment_requests WHERE id=?').get(id);
+  if (!raw) return { ok: false, error: 'not found' };
+  if (raw.review_status === 'approved') return { ok: false, error: 'This request was already approved.' };
+  if (raw.review_status === 'rejected') return { ok: true, already: true };
+  if (!(raw.source || '').startsWith('QR self-enroll')) return { ok: false, error: 'Only QR self-enrollment requests are rejected here.' };
+  return db.transaction(() => {
+    if (raw.student_id && raw.session_id) {
+      db.prepare(`DELETE FROM attendance WHERE student_id=? AND session_id=? AND source='qr-pending'`).run(raw.student_id, raw.session_id);
+      if (raw.section_id) attqr.recomputeGrades(raw.section_id);
+    }
+    const st = raw.student_id ? db.prepare('SELECT * FROM students WHERE id=?').get(raw.student_id) : null;
+    if (st && !raw.existing_student && !st.user_id && raw.section_id) {
+      const activity = db.prepare(`SELECT
+        (SELECT COUNT(*) FROM attendance WHERE student_id=?) att,
+        (SELECT COUNT(*) FROM grades WHERE student_id=?) grades,
+        (SELECT COUNT(*) FROM hw_submissions WHERE student_id=?) hw,
+        (SELECT COUNT(*) FROM submissions WHERE student_id=?) sub`).get(st.id, st.id, st.id, st.id);
+      if (!activity.att && !activity.grades && !activity.hw && !activity.sub) {
+        const enrolled = JSON.parse(raw.enrolled_codes || '[]');
+        for (const code of enrolled) {
+          const sec = sectionForCode(code);
+          if (sec) db.prepare('DELETE FROM enrollments WHERE student_id=? AND section_id=?').run(st.id, sec.id);
+        }
+      }
+    }
+    db.prepare(`UPDATE enrollment_requests SET review_status='rejected' WHERE id=?`).run(raw.id);
+    return { ok: true, student_id: raw.student_id };
+  })();
+}
+
+// discard() should also drop a pending QR attendance mark so a removed request does not linger as present.
+const _discard = discard;
+discard = function (id) {
+  const raw = db.prepare('SELECT * FROM enrollment_requests WHERE id=?').get(id);
+  if (raw && raw.student_id && raw.session_id) {
+    db.prepare(`DELETE FROM attendance WHERE student_id=? AND session_id=? AND source='qr-pending'`).run(raw.student_id, raw.session_id);
+  }
+  return _discard(id);
+};
+
 module.exports = {
-  COURSES, DEFAULT_CLOSE, digits, normalizePhone, phonesMatch, findByPhone, closeAt, isOpen, closeLabels,
-  validate, submit, get, list, pendingCount, markNotified, discard, createLogin, pageData, rateLimited, resetRateLimit, isHoneypot, sectionForCode, seatCount
+  COURSES, DEFAULT_CLOSE, digits, normalizePhone, phonesMatch, findByPhone, findByEmail, closeAt, isOpen, closeLabels,
+  validate, validateQr, submit, submitQr, get, list, pendingCount, markNotified, discard, approve, reject,
+  createLogin, generatePassword, storeWelcome, listWelcomes, getWelcome, markWelcomeSent,
+  pageData, rateLimited, resetRateLimit, isHoneypot, sectionForCode, seatCount, qrSource
 };

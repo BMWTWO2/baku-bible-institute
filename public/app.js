@@ -11,8 +11,8 @@ document.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',a
   const li=(t,sub)=>{const e=document.createElement('li');e.textContent=t;if(sub){const s=document.createElement('span');s.className='muted';s.textContent=' '+sub;e.append(s)}return e};
   const fill=(sel,arr,f,empty)=>{const ul=$(sel);if(!ul)return;ul.replaceChildren(...arr.map(f));if(!arr.length&&empty){const e=li(empty);e.className='muted';ul.append(e)}};
   const tick=async()=>{try{const r=await fetch(url,{credentials:'same-origin',cache:'no-store'});if(!r.ok)return;const d=await r.json();
-    $('[data-n-scanned]').textContent=d.scanned.length+d.marked.length;$('[data-n-total]').textContent=d.total;
-    fill('[data-missing]',d.missing,x=>li(x.name,x.no_login?'no login — mark by hand':''),'Everyone is in ✓');fill('[data-scanned]',d.scanned,x=>li(x.name,x.time));fill('[data-marked]',d.marked,x=>li(x.name,x.status));
+    $('[data-n-scanned]').textContent=d.scanned.length+d.marked.length+(d.pending||[]).length;$('[data-n-total]').textContent=d.total;
+    fill('[data-missing]',d.missing,x=>li(x.name,x.no_login?'no login — mark by hand':''),'Everyone is in ✓');fill('[data-scanned]',d.scanned,x=>li(x.name,x.time));fill('[data-pending]',d.pending||[],x=>li(x.name,'pending'),'None');fill('[data-marked]',d.marked,x=>li(x.name,x.status));
     $('[data-updated]').textContent='· updated '+d.now_baku+' Baku'}catch(e){}};setInterval(tick,5000);})();
 document.querySelectorAll('form[data-confirm]').forEach(f=>f.addEventListener('submit',e=>{if(!confirm(f.dataset.confirm))e.preventDefault()}));
 // Lessons: fill a textarea from a chosen .txt/.md file (read in the browser; nothing uploaded separately).

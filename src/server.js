@@ -121,6 +121,17 @@ app.post('/api/enrollments/:id/discard', apiAuth, (req, res) => {
   if (!r.ok) return res.status(r.error === 'not found' ? 404 : 409).json(r);
   res.json(r);
 });
+// New student logins and their temporary passwords, for the welcome-email routine only.
+// GET lists pending (or all) rows; POST /:id/sent marks one as emailed. The site itself never sends the email.
+app.get('/api/logins/welcome', apiAuth, (req, res) => {
+  const pending = String(req.query.pending || '') === '1' || String(req.query.pending || '') === 'true';
+  res.json({ items: enroll.listWelcomes({ pending }) });
+});
+app.post('/api/logins/welcome/:id/sent', apiAuth, (req, res) => {
+  if (!enroll.getWelcome(req.params.id)) return res.status(404).json({ error: 'not found' });
+  const changed = enroll.markWelcomeSent(req.params.id);
+  res.json({ ok: true, id: Number(req.params.id), sent: true, already: !changed });
+});
 // Inbound homework email (Cloudflare Email Worker posts here). Never sends a reply.
 const INBOUND_TOKEN = () => process.env.INBOUND_EMAIL_TOKEN || '';
 const inboundAuth = (req, res, next) => {
@@ -171,7 +182,8 @@ app.post('/enroll', (req, res) => {
   audit(req, 'enrollment.request', { id: r.id, student_id: r.student_id, existing: r.existing, enrolled: r.enrolled, full: r.full });
   res.redirect('/?tesekkur=1#qeydiyyat');
 });
-const loginView = (next, error) => ({ title: 'Sign in', error: error || null, next: sessions.localNext(next), qrNote: sessions.isQrNext(next) });
+const loginView = (next, error) => { const n = sessions.localNext(next); const tok = sessions.qrTokenFromNext(n);
+  return { title: 'Sign in', error: error || null, next: n, qrNote: !!tok, qrEnroll: tok ? '/qeyd/' + tok + '/qeydiyyat' : null }; };
 app.get('/login', (req, res) => { const n = sessions.localNext(req.query.next);
   // A student who is already signed in (e.g. scanned a QR) goes straight back to where they were headed.
   if (req.session.user && n) return res.redirect(n);
@@ -219,11 +231,25 @@ app.post('/admin/students/:id/login', A, (req, res) => {
   const r = enroll.createLogin(req.params.id, { email: req.body.email, password: req.body.password });
   if (!r.ok) { flash(req, r.error); return res.redirect('/admin/students/' + req.params.id); }
   audit(req, 'student.login.create', { id: Number(req.params.id), user_id: r.user_id });
-  flash(req, 'Login created. The student can now sign in and scan QR check-in codes.');
+  flash(req, 'Login created. The welcome email will go out at the next scheduled send (the temporary password is not shown here).');
   res.redirect('/admin/students/' + req.params.id);
 });
 app.get('/admin/enrollments', A, (req, res) => res.render('admin/enrollments', { title: 'Enrollment requests', wide: true, rows: enroll.list() }));
 app.post('/admin/enrollments/:id/notified', A, (req, res) => { enroll.markNotified(req.params.id); flash(req, 'Marked as notified.'); res.redirect('/admin/enrollments'); });
+app.post('/admin/enrollments/:id/approve', A, (req, res) => {
+  const r = enroll.approve(req.params.id);
+  if (!r.ok) { flash(req, r.error || 'Could not approve that request.'); return res.redirect('/admin/enrollments'); }
+  audit(req, 'enrollment.approve', { id: Number(req.params.id), student_id: r.student_id, login_created: r.login_created, already: r.already });
+  flash(req, r.already ? 'Already approved.' : (r.login_created ? 'Approved. A login was created; the welcome email will go out at the next scheduled send.' : 'Approved. Attendance is now recorded as present.'));
+  res.redirect('/admin/enrollments');
+});
+app.post('/admin/enrollments/:id/reject', A, (req, res) => {
+  const r = enroll.reject(req.params.id);
+  if (!r.ok) { flash(req, r.error || 'Could not reject that request.'); return res.redirect('/admin/enrollments'); }
+  audit(req, 'enrollment.reject', { id: Number(req.params.id), student_id: r.student_id });
+  flash(req, 'Request rejected. The pending attendance mark was removed.');
+  res.redirect('/admin/enrollments');
+});
 app.post('/admin/enrollments/:id/discard', A, (req, res) => {
   const r = enroll.discard(req.params.id);
   flash(req, r.ok ? 'Enrollment request removed.' : (r.error || 'Could not remove that request.'));
@@ -277,8 +303,8 @@ app.get('/admin/attendance/qr/:sid/week/:week.png', T, async (req, res) => { con
   res.set({ 'Cache-Control': 'private, no-store', 'Content-Disposition': `${req.query.download ? 'attachment' : 'inline'}; filename="BBI-${c.sec.code.replace(/\s+/g, '')}-week${c.code.week_no}-QR.png"` });
   res.type('png').send(await attqr.png(c.url, req.query.size || 1200)); });
 app.get('/admin/attendance/qr/:sid/week/:week.svg', T, async (req, res) => { const c = qrCtx(req, res); if (!c) return;
-  res.set({ 'Cache-Control': 'private, no-store', 'Content-Disposition': `${req.query.download ? 'attachment' : 'inline'}; filename="BBI-${c.sec.code.replace(/\s+/g, '')}-week${c.code.week_no}-QR.svg"` });
-  res.type('image/svg+xml').send(await attqr.svg(c.url)); });
+  res.set({ 'Cache-Control': 'private, no-store', 'Content-Disposition': `${req.query.download ? 'attachment' : 'inline'}; filename="BBI-${c.sec.code.replace(/\s+/g, '')}-week${c.code.week_no}-QR${req.query.poster ? '-poster' : ''}.svg"` });
+  res.type('image/svg+xml').send(req.query.poster ? await attqr.posterSvg(c.url) : await attqr.svg(c.url)); });
 app.get('/admin/attendance/qr/:sid/week/:week/roster.json', T, (req, res) => { const c = qrCtx(req, res); if (!c) return;
   res.set('Cache-Control', 'no-store'); res.json({ live: attqr.isLive(c.code), now_baku: new Date(Date.now() + 4 * 3600e3).toISOString().slice(11, 16), ...attqr.roster(c.code) }); });
 const qrView = print => async (req, res) => { const c = qrCtx(req, res); if (!c) return;
@@ -292,6 +318,32 @@ app.post('/admin/attendance/qr/:sid/week/:week/rotate', T, (req, res) => { const
   audit(req, 'attendance.qr_rotate', { section: c.sec.id, week: c.code.week_no }); flash(req, 'New code made. The old QR for this week no longer works; print or project the new one.'); res.redirect(qrBase(c.sec.id, c.code.week_no)); });
 app.post('/admin/attendance/qr/:sid/week/:week/absent', T, (req, res) => { const c = qrCtx(req, res); if (!c) return; const n = attqr.markRestAbsent(c.code);
   audit(req, 'attendance.qr_rest_absent', { section: c.sec.id, week: c.code.week_no, n }); flash(req, n + ' student(s) without a scan marked absent. You can still change any mark on the Attendance page.'); res.redirect(qrBase(c.sec.id, c.code.week_no)); });
+// QR self-enrollment (first-time students). Works whenever the weekly token is live; not tied to the homepage form close date.
+const qrCodeOrNull = token => attqr.byToken(String(token || '').replace(/[^\w-]/g, '').slice(0, 64));
+const qrEnrollLocals = (req, code, extra = {}) => ({ title: 'Qeydiyyat', lang: 'az', code, attqr, live: !!(code && attqr.isLive(code)),
+  errors: extra.errors || null, values: extra.values || {}, thanks: !!extra.thanks, hasLogin: !!extra.hasLogin, expired: !!extra.expired });
+app.get('/qeyd/:token/qeydiyyat', (req, res) => {
+  const token = String(req.params.token || '').replace(/[^\w-]/g, '').slice(0, 64);
+  if (req.session.user && req.session.user.role === 'student') return res.redirect('/qeyd/' + token);
+  const code = qrCodeOrNull(token);
+  if (!code) return res.status(404).render('student/qeydiyyat', qrEnrollLocals(req, null, { expired: true }));
+  if (!attqr.isLive(code)) return res.status(410).render('student/qeydiyyat', qrEnrollLocals(req, code, { expired: true }));
+  res.render('student/qeydiyyat', qrEnrollLocals(req, code, { thanks: String(req.query.tesekkur || '') === '1' }));
+});
+app.post('/qeyd/:token/qeydiyyat', (req, res) => {
+  const token = String(req.params.token || '').replace(/[^\w-]/g, '').slice(0, 64);
+  if (req.session.user && req.session.user.role === 'student') return res.redirect('/qeyd/' + token);
+  const code = qrCodeOrNull(token);
+  if (!code || !attqr.isLive(code)) return res.status(410).render('student/qeydiyyat', qrEnrollLocals(req, code, { expired: true }));
+  if (enroll.rateLimited(req.ip)) return res.status(429).render('student/qeydiyyat', qrEnrollLocals(req, code, { errors: [{ az: 'Bir az sonra yenidən cəhd edin.', en: 'Too many tries from this network. Please wait a few minutes and try again.' }], values: { name: String(req.body.name||''), email: String(req.body.email||''), whatsapp: String(req.body.whatsapp||''), note: String(req.body.note||'') } }));
+  const r = enroll.submitQr(req.body, code);
+  if (r.spam) return res.redirect('/qeyd/' + token + '/qeydiyyat?tesekkur=1');
+  if (r.has_login) return res.status(400).render('student/qeydiyyat', qrEnrollLocals(req, code, { hasLogin: true, values: r.values || {} }));
+  if (!r.ok) return res.status(400).render('student/qeydiyyat', qrEnrollLocals(req, code, { errors: r.errors || [{ az: 'Zəhmət olmasa formu yoxlayın.', en: 'Please check the form.' }], values: r.values || {} }));
+  audit(req, 'enrollment.qr_self', { id: r.id, student_id: r.student_id, existing: r.existing, section: code.section_id, week: code.week_no, already: r.already });
+  res.redirect('/qeyd/' + token + '/qeydiyyat?tesekkur=1');
+});
+
 // Student scan
 const CHECKIN_MSG = { marked: ['ok', 'Davamiyyətiniz qeyd olundu.'], already: ['ok', 'Davamiyyətiniz artıq qeyd olunub.'],
   teacher_mark: ['ok', 'Bu dərs üçün davamiyyətinizi müəllim artıq qeyd edib. Sualınız varsa, müəllimə yazın.'],

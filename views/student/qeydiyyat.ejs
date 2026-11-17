@@ -1,0 +1,32 @@
+<%- include('../partials/head') %>
+<section class="login rise"><div class="card enroll-card-sm">
+<% if (thanks) { %>
+  <h1>Təşəkkür edirik!</h1>
+  <p class="enroll-thanks">Qeydiyyatınız qəbul olundu. Bu dərsdə iştirakınız qeyd olundu. Pastor Bruce tezliklə sizə giriş məlumatlarınızı göndərəcək.</p>
+  <p class="muted">Thank you — your enrollment was received and you are marked present for this class. Pastor Bruce will send your sign-in details soon.</p>
+  <% if (code) { %><p class="small muted"><%= code.code %> · <%= code.title_az || code.title %> · Həftə <%= code.week_no %></p><% } %>
+<% } else if (expired || !code) { %>
+  <h1>Bu kod işləmir</h1>
+  <p>Bu QR kodun vaxtı bitib və ya tanınmadı. Zəhmət olmasa, dərsdə göstərilən bu həftənin kodunu skan edin.</p>
+  <p class="muted">This code has expired or was not recognized. Please scan this week's code shown in class.</p>
+<% } else { %>
+  <h1>Qeydiyyat</h1>
+  <p class="qr-class"><b><%= code.code %></b> · <%= code.title_az || code.title %><br><span class="muted">Həftə <%= code.week_no %></span></p>
+  <p>Adınızı, emailinizi və WhatsApp nömrənizi yazın. Qeydiyyatdan sonra bu dərsdə iştirakınız qeyd olunacaq.</p>
+  <% if (hasLogin) { %><p class="err">Bu email ilə hesab artıq var. Zəhmət olmasa daxil olun.</p>
+  <p class="muted">An account with that email already exists. Please sign in.</p>
+  <p><a class="btn full" href="/login?next=<%= encodeURIComponent('/qeyd/' + code.token) %>">Daxil ol · Sign in</a></p><% } %>
+  <% if (errors && errors.length) { %><ul class="err-list"><% errors.forEach(e => { %><li><%= e.az %> <span class="muted"><%= e.en %></span></li><% }) %></ul><% } %>
+  <form method="post" action="/qeyd/<%= code.token %>/qeydiyyat" class="enroll-form">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <p class="hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label><label>Company<input name="company" tabindex="-1" autocomplete="off"></label></p>
+    <label>Ad, soyad<input name="name" required maxlength="80" value="<%= (values && values.name) || '' %>" autocomplete="name"></label>
+    <label>Email<input name="email" type="email" required value="<%= (values && values.email) || '' %>" autocomplete="email"></label>
+    <label>WhatsApp nömrəsi<input name="whatsapp" required value="<%= (values && values.whatsapp) || '' %>" placeholder="+994 …" inputmode="tel" autocomplete="tel"></label>
+    <label>Qeyd <span class="muted">(istəyə bağlı)</span><textarea name="note" rows="2" maxlength="500"><%= (values && values.note) || '' %></textarea></label>
+    <button class="btn gold full">Qeydiyyatdan keç</button>
+  </form>
+  <p class="small"><a href="/login?next=<%= encodeURIComponent('/qeyd/' + code.token) %>">Hesabınız var? Daxil olun · Sign in</a></p>
+<% } %>
+</div></section>
+<%- include('../partials/foot') %>

@@ -70,6 +70,7 @@ function localNext(n) {
   return n;
 }
 const isQrNext = n => /^\/qeyd\/[\w-]{1,64}$/.test(localNext(n));
+const qrTokenFromNext = n => { const m = localNext(n).match(/^\/qeyd\/([\w-]{1,64})$/); return m ? m[1] : ''; };
 
 function safeNext(req) {
   let p = '';
@@ -94,6 +95,10 @@ function csrfGuard(req, res, next) {
         req.session.flash = 'That form was out of date. Please try again. · Forma köhnəlib, zəhmət olmasa yenidən yoxlayın.';
         return res.redirect('/#qeydiyyat');
       }
+      if (/^\/qeyd\/[\w-]{1,64}\/qeydiyyat$/.test(req.path)) {
+        req.session.flash = 'Forma köhnəlib, zəhmət olmasa yenidən yoxlayın. · That form was out of date. Please try again.';
+        return res.redirect(req.path);
+      }
       req.session.flash = 'Your session expired. Please sign in again.';
       return res.redirect('/login?next=' + encodeURIComponent(nextPath));
     }
@@ -109,4 +114,4 @@ function csrfGuard(req, res, next) {
   next();
 }
 
-module.exports = { middleware, csrfGuard, safeNext, secret, COOKIE_MS, STUDENT_MS, keepStudent, studentPersist, localNext, isQrNext };
+module.exports = { middleware, csrfGuard, safeNext, secret, COOKIE_MS, STUDENT_MS, keepStudent, studentPersist, localNext, isQrNext, qrTokenFromNext };

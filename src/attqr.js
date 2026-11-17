@@ -87,10 +87,17 @@ function roster(code) {
     LEFT JOIN attendance a ON a.student_id=s.id AND a.session_id=? WHERE e.section_id=? AND s.status IN ('active','applicant','paused') ORDER BY s.name`).all(sid || -1, code.section_id);
   const out = rows.map(r => ({ id: r.id, name: r.name, status: r.status || null, source: r.source || null, no_login: !r.has_login,
     time: r.recorded_at ? new Date(Date.parse(r.recorded_at.replace(' ', 'T') + 'Z') + BAKU_MS).toISOString().slice(11, 16) : null }));
-  return { scanned: out.filter(r => r.status && r.source === 'qr'), marked: out.filter(r => r.status && r.source !== 'qr'), missing: out.filter(r => !r.status), total: out.length };
+  return {
+    scanned: out.filter(r => r.status && r.source === 'qr'),
+    marked: out.filter(r => r.status && r.source !== 'qr' && r.source !== 'qr-pending'),
+    pending: out.filter(r => r.source === 'qr-pending'),
+    missing: out.filter(r => !r.status),
+    total: out.length
+  };
 }
 // opts.loginOnly (used by the automatic end-of-week close): skip students with no login yet — they cannot scan,
 // so they are never marked absent automatically; the teacher marks them by hand.
+// Pending QR self-enrollees already have a qr-pending mark, so they are not in `missing` and are never auto-absent.
 function markRestAbsent(code, opts = {}) {
   const sid = sessionFor(code); let n = 0;
   db.transaction(() => { for (const r of roster(code).missing.filter(x => !opts.loginOnly || !x.no_login)) n += db.prepare(`INSERT OR IGNORE INTO attendance (session_id, student_id, status, note, source) VALUES (?,?, 'absent', 'No QR scan', 'manual')`).run(sid, r.id).changes; recomputeGrades(code.section_id); })();
@@ -113,12 +120,15 @@ function ensureGradeItem(sectionId) {
 // charged for weeks before they enrolled. Present, late and excused earn credit; absent earns 0.
 function recomputeGrades(sectionId) {
   const it = ensureGradeItem(sectionId);
-  const rows = db.prepare(`SELECT a.student_id, COUNT(*) marked, SUM(a.status IN ('present','late','excused')) credit FROM attendance a JOIN class_sessions cs ON cs.id=a.session_id
+  const rows = db.prepare(`SELECT a.student_id,
+      SUM(a.source <> 'qr-pending') marked,
+      SUM(a.status IN ('present','late','excused') AND a.source <> 'qr-pending') credit
+    FROM attendance a JOIN class_sessions cs ON cs.id=a.session_id
     JOIN enrollments e ON e.student_id=a.student_id AND e.section_id=cs.section_id WHERE cs.section_id=? GROUP BY a.student_id`).all(sectionId);
   if (!rows.length) return 0;
   const up = db.prepare(`INSERT INTO grades (grade_item_id, student_id, points, source) VALUES (?,?,?, 'attendance')
     ON CONFLICT(grade_item_id, student_id) DO UPDATE SET points=excluded.points, updated_at=CURRENT_TIMESTAMP WHERE grades.source<>'manual'`);
-  let n = 0; for (const r of rows) { const d = Math.min(SESSIONS, r.marked); n += up.run(it.id, r.student_id, Math.round(100 * it.max_points * Math.min(r.credit, d) / d) / 100).changes; }
+  let n = 0; for (const r of rows) { const d = Math.min(SESSIONS, r.marked); if (!d) continue; n += up.run(it.id, r.student_id, Math.round(100 * it.max_points * Math.min(r.credit, d) / d) / 100).changes; }
   return n;
 }
 // No scan = absent. Once a code's Baku week is over, each enrolled student WITH A LOGIN and no mark for that session gets 'absent'
@@ -140,5 +150,19 @@ const png = (url, size = 1200) => QRCode.toBuffer(url, { ...QR_OPTS, type: 'png'
 const svg = url => QRCode.toString(url, { ...QR_OPTS, type: 'svg' });
 const dataUrl = (url, size = 900) => QRCode.toDataURL(url, { ...QR_OPTS, width: size });
 
+// Short Azeri steps shown under the projected / printed / downloaded code.
+const SCAN_STEPS = [
+  '1. Kameranızla QR kodu skan edin.',
+  '2. Hesabınız varsa, daxil olun — davamiyyətiniz qeyd olunacaq.',
+  '3. Yenisinizsə, “Yeniyəm” düyməsinə basın və formu doldurun.'
+];
+const escapeXml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// A taller SVG poster: the QR plus the three steps, readable when projected or printed.
+async function posterSvg(url) {
+  const qr = await dataUrl(url, 1000);
+  const lines = SCAN_STEPS.map((t, i) => `<text x="600" y="${1180 + i * 56}" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="32" font-weight="600" fill="#111">${escapeXml(t)}</text>`).join('');
+  return `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1480" viewBox="0 0 1200 1480"><rect width="100%" height="100%" fill="#ffffff"/><image href="${qr}" x="100" y="40" width="1000" height="1000"/>${lines}</svg>`;
+}
+
 module.exports = { bakuStamp, closePastWeeks, SESSIONS, POINTS, WINDOW, CREDIT, bakuDate, fmtAz, fmtEn, termStart, setMeta, mondayOf, weekOf, weekRange, sections, ensureWindow, getCode, byToken, isLive, rotate, window,
-  sessionFor, checkIn, roster, markRestAbsent, ensureGradeItem, recomputeGrades, isAttendanceItem, png, svg, dataUrl };
+  sessionFor, checkIn, roster, markRestAbsent, ensureGradeItem, recomputeGrades, isAttendanceItem, png, svg, dataUrl, posterSvg, SCAN_STEPS };

@@ -98,3 +98,15 @@ a.notes-link{display:block;text-decoration:none;color:inherit;border-left:4px so
 @media(min-width:700px){.enroll-card{padding:32px 36px}}
 
 .qr-nologin{background:#fbf3df;border-left-color:var(--gold);margin:10px 0 16px;line-height:1.5}
+
+.qr-steps{list-style:decimal;text-align:left;max-width:22em;margin:18px auto 8px;padding:12px 12px 12px 2.1em;background:#fff8e8;border:2px solid #e2c56a;border-radius:14px;font-size:clamp(1.15rem, 2.6vh, 1.85rem);line-height:1.35;font-weight:700;color:#1a1a1a}
+.qr-steps li{margin:.35em 0}
+.qr-stage:fullscreen .qr-steps{font-size:clamp(1.3rem, 3.2vh, 2.1rem);max-width:28em}
+.qr-sheet .qr-steps{font-size:1.55rem;max-width:28em;margin:20px auto}
+.qr-enroll-btn{margin-top:12px;font-size:1.05rem}
+.enroll-form{display:grid;gap:12px;margin:14px 0}
+.enroll-card-sm h1{margin-bottom:.4em}
+.qr-class{margin:0 0 12px}
+.err-list{color:var(--red);padding-left:1.2em;margin:8px 0}
+.login .card{width:min(460px,100%)}
+@media print{.qr-steps{font-size:1.5rem;border-color:#000}}

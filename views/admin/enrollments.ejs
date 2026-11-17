@@ -1,23 +1,29 @@
 <%- include('../partials/head') %>
 <div class="pagehead rise"><div><p class="eyebrow"><a href="/admin">Dashboard</a></p><h1>Enrollment requests</h1>
-<p class="muted">Homepage form submissions. New students are added to the roster without a login. A full class is not over-enrolled — those requests are flagged for review.</p></div></div>
+<p class="muted">Homepage form submissions and QR self-enrollments. Approve a QR request to create a login (the welcome email is sent by the scheduled routine — the password is not shown here) and confirm today's attendance. Rejecting a QR request drops the pending attendance mark.</p></div></div>
 <% if (!rows.length) { %><p class="muted rise">No enrollment requests yet.</p><% } else { %>
-<table class="tbl rise d1"><thead><tr><th>When</th><th>Name</th><th>Phone</th><th>WhatsApp</th><th>Classes</th><th>Student</th><th>Flag</th><th>Notified</th><th></th></tr></thead><tbody>
-<% rows.forEach(r => { %>
+<table class="tbl rise d1"><thead><tr><th>When</th><th>Name</th><th>Contact</th><th>Classes</th><th>Student</th><th>Flag</th><th>Status</th><th></th></tr></thead><tbody>
+<% rows.forEach(r => { const qr = r.via === 'qr'; %>
 <tr>
   <td class="small"><%= r.created_at %></td>
-  <td><b><%= r.name %></b></td>
-  <td class="small"><%= r.phone %></td>
-  <td class="small"><%= r.whatsapp_phone || '—' %></td>
+  <td><b><%= r.name %></b><% if (qr) { %><br><span class="pill gold">QR · <%= r.course_code || '' %> week <%= r.week_no || '' %></span><% } %></td>
+  <td class="small"><% if (r.email) { %><%= r.email %><br><% } %><%= r.phone %><% if (r.whatsapp_phone && r.whatsapp_phone !== r.phone) { %><br>WA <%= r.whatsapp_phone %><% } %><% if (r.note) { %><br><span class="muted"><%= r.note %></span><% } %></td>
   <td class="small">Asked: <%= r.classes.join(', ') || '—' %><br>
     <% if (r.enrolled.length) { %><span class="pill green">enrolled <%= r.enrolled.join(', ') %></span><% } %>
     <% if (r.full.length) { %><span class="pill amber">full <%= r.full.join(', ') %></span><% } %>
   </td>
   <td><% if (r.student_id) { %><a href="/admin/students/<%= r.student_id %>">#<%= r.student_id %></a><% if (r.existing_student) { %><br><span class="pill blue">existing</span><% } %><% } else { %>—<% } %></td>
   <td><% if (r.review_flag) { %><span class="pill <%= r.review_flag.includes('full')?'amber':'blue' %>"><%= r.review_flag %></span><% } else { %><span class="muted">—</span><% } %></td>
-  <td><% if (r.notified) { %><span class="pill green">yes</span><span class="small muted"><%= r.notified_at||'' %></span><% } else { %><span class="pill amber">pending</span><% } %></td>
   <td>
-    <% if (!r.notified) { %><form method="post" action="/admin/enrollments/<%= r.id %>/notified" class="inline"><input type="hidden" name="_csrf" value="<%= csrf %>"><button class="btn sm">Mark notified</button></form><% } %>
+    <% if (qr) { %><span class="pill <%= r.review_status==='approved'?'green':r.review_status==='rejected'?'red':'amber' %>"><%= r.review_status %></span><br><% } %>
+    <% if (r.notified) { %><span class="pill green">notified</span><span class="small muted"><%= r.notified_at||'' %></span><% } else { %><span class="pill amber">alert pending</span><% } %>
+  </td>
+  <td>
+    <% if (qr && r.review_status === 'pending') { %>
+      <form method="post" action="/admin/enrollments/<%= r.id %>/approve" class="inline"><input type="hidden" name="_csrf" value="<%= csrf %>"><button class="btn sm">Approve</button></form>
+      <form method="post" action="/admin/enrollments/<%= r.id %>/reject" class="inline" onsubmit="return confirm('Reject this request and drop the pending attendance mark?')"><input type="hidden" name="_csrf" value="<%= csrf %>"><button class="link">Reject</button></form>
+    <% } %>
+    <% if (!r.notified) { %><form method="post" action="/admin/enrollments/<%= r.id %>/notified" class="inline"><input type="hidden" name="_csrf" value="<%= csrf %>"><button class="btn sm ghost">Mark notified</button></form><% } %>
     <form method="post" action="/admin/enrollments/<%= r.id %>/discard" class="inline" onsubmit="return confirm('Remove this request? A new student with no login and no class activity will also be removed from the roster.')"><input type="hidden" name="_csrf" value="<%= csrf %>"><button class="link">Remove</button></form>
   </td>
 </tr>

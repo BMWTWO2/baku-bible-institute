@@ -61,7 +61,7 @@ SQLite lives in `data/`; on Render's free tier the disk is wiped on every restar
 Teachers/admins open **Attendance → QR check-in codes** (`/admin/attendance/qr`). Each class gets one fresh random code per Baku week
 (Mon–Sun, UTC+4); week *k* = attendance session *k* of 8. Codes for this week and the next 4 always exist (a rolling 5-week window);
 a code only works during its own week. Display: `/admin/attendance/qr/<section>/week/<k>` (projectable, live roster),
-`…/print`, `….png?size=1600&download=1`, `….svg?download=1`. Students scan → `/qeyd/<token>` → sign in → marked present
-(idempotent; a teacher's manual mark always wins). Each class has a 50-point **Davamiyyət · Attendance** grade item:
+`…/print`, `….png?size=1600&download=1`, `….svg?download=1&poster=1` (code plus the three Azeri steps). Students scan → `/qeyd/<token>` → sign in → marked present
+(idempotent; a teacher's manual mark always wins). First-time students can enroll themselves from the sign-in page (`/qeyd/<token>/qeydiyyat`) whenever that week's code is live. Each class has a 50-point **Davamiyyət · Attendance** grade item:
 50 × (present + late + excused) ÷ sessions held (max 8). Hand-typed scores in that item are never overwritten. See `src/attqr.js`.
 Read-only bot API: `GET /api/attendance` and `/api/attendance/qr/<section>/week/<k>.png` (Bearer HOMEWORK_API_TOKEN).
