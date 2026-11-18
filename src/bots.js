@@ -2,12 +2,14 @@ const db = require('./db');
 const HERALD_HOURS = Number(process.env.HERALD_HOURS || 48);
 const unexcused = () => db.prepare(`SELECT s.id, s.name, c.code, sec.id section_id, COUNT(*) n FROM attendance a JOIN class_sessions cs ON cs.id=a.session_id JOIN sections sec ON sec.id=cs.section_id JOIN courses c ON c.id=sec.course_id JOIN students s ON s.id=a.student_id WHERE a.status='absent' GROUP BY s.id, sec.id ORDER BY n DESC`).all();
 const BOTS = [
-  { key: 'shepherd', name: 'Shepherd', icon: '🕊️', watches: 'At-risk students: attendance under 75% or grade average under 70%.', flow: 'Attendance + grades → Shepherd → Director (weekly report) and teacher follow-up',
-    run() { return db.prepare(`SELECT s.id, s.name,
-        ROUND(100.0*SUM(CASE WHEN a.status IN ('present','late','excused') THEN 1 ELSE 0 END)/NULLIF(COUNT(a.id),0)) att,
-        (SELECT ROUND(AVG(100.0*g.points/gi.max_points)) FROM grades g JOIN grade_items gi ON gi.id=g.grade_item_id WHERE g.student_id=s.id AND g.points IS NOT NULL) avg
-        FROM students s LEFT JOIN attendance a ON a.student_id=s.id WHERE s.status='active' GROUP BY s.id HAVING att < 75 OR avg < 70`).all()
-        .map(r => ({ text: `${r.name}: attendance ${r.att ?? '—'}%, average ${r.avg ?? '—'}%`, link: `/admin/students/${r.id}` })); } },
+  { key: 'shepherd', name: 'Shepherd', icon: '🕊️', watches: 'At-risk students: attendance under 75% or weighted grade under 70%.', flow: 'Attendance + grades → Shepherd → Director (weekly report) and teacher follow-up',
+    run() { const grades = require('./grades');   // weighted running grade (lowest across the student's classes)
+      return db.prepare(`SELECT s.id, s.name,
+        ROUND(100.0*SUM(CASE WHEN a.status IN ('present','late','excused') THEN 1 ELSE 0 END)/NULLIF(COUNT(a.id),0)) att
+        FROM students s LEFT JOIN attendance a ON a.student_id=s.id WHERE s.status='active' GROUP BY s.id`).all()
+        .map(r => { const p = grades.averages(r.id).map(x => x.pct).filter(x => x != null); return { ...r, avg: p.length ? Math.round(Math.min(...p)) : null }; })
+        .filter(r => (r.att != null && r.att < 75) || (r.avg != null && r.avg < 70))
+        .map(r => ({ text: `${r.name}: attendance ${r.att ?? '—'}%, weighted grade ${r.avg ?? '—'}%`, link: `/admin/students/${r.id}` })); } },
   { key: 'steward', name: 'Steward', icon: '🏛️', watches: 'Class capacity: sections at 90%+ or over capacity.', flow: 'Enrollments → Steward → Admin (open a new section / waitlist)',
     run() { return db.prepare(`SELECT sec.id, c.code, c.title, sec.capacity, COUNT(e.id) n FROM sections sec JOIN courses c ON c.id=sec.course_id LEFT JOIN enrollments e ON e.section_id=sec.id GROUP BY sec.id HAVING n >= 0.9*sec.capacity`).all()
         .map(r => ({ text: `${r.code} ${r.title}: ${r.n}/${r.capacity} seats`, link: '/admin/classes' })); } },

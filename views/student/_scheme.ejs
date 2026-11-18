@@ -1,0 +1,14 @@
+<%# Student-facing grading summary (Azeri, with an English line under each item). Expects: sch (scheme), hwEach (number), f (number formatter). %>
+<section class="card rise d2 scheme-card" id="qiymetlendirme"><p class="eyebrow">Qiymətləndirmə</p><h2>Qiymətiniz necə hesablanır?</h2>
+<p class="muted small en">How your grade is calculated</p>
+<p>Əziz tələbələr, qiymətiniz sadə qaydada hesablanır. Əsas odur ki, dərslərə gəlin, iştirak edin və tapşırıqları vaxtında göndərin.</p>
+<p class="muted small en">Dear students, your grade is calculated in a simple way. What matters most is that you come to class, take part, and send in your homework on time.</p>
+<ul class="scheme-list">
+<li><b class="pct"><%= f(sch.attendance) %>%</b><div><b>Davamiyyət və dərsdə iştirak</b><br><span class="small">Dərsə gəlmək (QR kodu skan etmək) və dərsdə fəal iştirak etmək.</span><br><span class="small muted en">Attendance and class participation — coming to class (scanning the QR code) and taking part.</span></div></li>
+<li><b class="pct"><%= f(sch.final_exam) %>%</b><div><b>Yekun imtahan</b><br><span class="small">Kursun sonunda keçirilən imtahan.</span><br><span class="small muted en">Final exam — the exam at the end of the course.</span></div></li>
+<li><b class="pct"><%= f(sch.homework) %>%</b><div><b><%= sch.hw_count %> yazılı tapşırıq — hər biri <%= f(hwEach) %>%</b><br><span class="small">Hər tapşırıq 30 baldır (3 cavab × 10 bal) və yekun qiymətin <%= f(hwEach) %>%-ni təşkil edir.</span><br><span class="small muted en"><%= sch.hw_count %> written assignments, <%= f(hwEach) %>% each — every assignment is 30 points (3 answers × 10 points) and counts for <%= f(hwEach) %>% of your final grade.</span></div></li></ul>
+<p class="small">Məsələn: tapşırıqdan 24/30 alsanız, bu, <%= f(hwEach) %>%-dən <%= f(24/30*hwEach) %>% qazanmaq deməkdir.</p>
+<p class="small muted en">For example: if you score 24 out of 30 on an assignment, you earn <%= f(24/30*hwEach) %> of the <%= f(hwEach) %> percentage points.</p>
+<p class="small">Hələ qiymətləndirilməyən hissələr hesaba qatılmır — nəticəniz kurs irəlilədikcə yenilənir. Hər birinizə uğurlar arzulayıram!</p>
+<p class="small muted en">Parts that have not been graded yet are not counted — your result updates as the course goes on. I wish each of you every success!</p>
+<p class="small"><i>Allah sizi xeyir-dua etsin. — Pastor Bruce Wright</i></p></section>

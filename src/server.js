@@ -360,27 +360,34 @@ app.get('/qeyd/:token', (req, res) => { const u = req.session.user;
     name: r.student ? String(r.student.name).split(' ')[0] : '' }); });
 
 // Gradebook
-app.get('/admin/gradebook', T, (req, res) => res.render('admin/gradebook', { title: 'Gradebook', sections: sectionsList(), items: db.prepare(`SELECT gi.*, c.code, sec.id sid, (SELECT a.id FROM assignments a WHERE a.grade_item_id=gi.id) assignment_id, (SELECT COUNT(*) FROM grades g WHERE g.grade_item_id=gi.id AND g.points IS NOT NULL) graded, (SELECT COUNT(*) FROM enrollments e WHERE e.section_id=gi.section_id) n FROM grade_items gi JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id ORDER BY gi.due_date`).all() }));
-app.get('/admin/gradebook/:id', T, (req, res) => { const item = db.prepare(`SELECT gi.*, c.code, c.title course FROM grade_items gi JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id WHERE gi.id=?`).get(req.params.id);
+app.get('/admin/gradebook', T, (req, res) => { if (grades.ensureItems()) persist.schedule('grade-items'); res.render('admin/gradebook', { title: 'Gradebook', sections: sectionsList(), grades, items: db.prepare(`SELECT gi.*, ${grades.CAT} cat, c.code, sec.id sid, (SELECT a.id FROM assignments a WHERE a.grade_item_id=gi.id) assignment_id, (SELECT COUNT(*) FROM grades g WHERE g.grade_item_id=gi.id AND g.points IS NOT NULL) graded, (SELECT COUNT(*) FROM enrollments e WHERE e.section_id=gi.section_id) n FROM grade_items gi JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id ORDER BY c.code, gi.due_date, gi.id`).all() }); });
+app.get('/admin/gradebook/:id', T, (req, res) => { const item = db.prepare(`SELECT gi.*, ${grades.CAT} cat, c.code, c.title course FROM grade_items gi JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id WHERE gi.id=?`).get(req.params.id);
   if (!item) return res.status(404).render('error', { title: 'Not found', msg: 'No such grade item.' });
-  res.render('admin/gradeitem', { title: item.title, item, rows: db.prepare(`SELECT s.id, s.name, g.points, g.comment FROM enrollments e JOIN students s ON s.id=e.student_id LEFT JOIN grades g ON g.grade_item_id=? AND g.student_id=s.id WHERE e.section_id=? ORDER BY s.name`).all(item.id, item.section_id) }); });
+  res.render('admin/gradeitem', { title: item.title, item, grades, locked: !!db.prepare('SELECT 1 FROM assignments WHERE grade_item_id=?').get(item.id), rows: db.prepare(`SELECT s.id, s.name, g.points, g.comment FROM enrollments e JOIN students s ON s.id=e.student_id LEFT JOIN grades g ON g.grade_item_id=? AND g.student_id=s.id WHERE e.section_id=? ORDER BY s.name`).all(item.id, item.section_id) }); });
 const setGrade = (item, student, points, comment, source) => db.prepare(`INSERT INTO grades (grade_item_id, student_id, points, comment, source) VALUES (?,?,?,?,?) ON CONFLICT(grade_item_id, student_id) DO UPDATE SET points=excluded.points, comment=COALESCE(excluded.comment, comment), source=excluded.source, updated_at=CURRENT_TIMESTAMP`).run(item, student, points, comment || null, source);
 // Graded items that are not homework (exams, quizzes, participation…). Homework items come from /admin/assignments.
 app.post('/admin/gradebook', T, (req, res) => { const b = req.body; const sec = db.prepare('SELECT id FROM sections WHERE id=?').get(b.section_id);
   const max = Number(b.max_points), w = b.weight === '' || b.weight == null ? 1 : Number(b.weight);
   if (!sec || !String(b.title || '').trim() || !(max > 0) || !(w >= 0)) { flash(req, 'Not saved: pick a class, a title, max points > 0 and weight ≥ 0.'); return res.redirect('/admin/gradebook'); }
-  const id = db.prepare('INSERT INTO grade_items (section_id, title, max_points, due_date, weight) VALUES (?,?,?,?,?)').run(sec.id, String(b.title).trim(), max, b.due_date || null, w).lastInsertRowid;
+  const kind = grades.KINDS.includes(b.kind) ? b.kind : 'other';
+  const id = db.prepare('INSERT INTO grade_items (section_id, title, max_points, due_date, weight, kind) VALUES (?,?,?,?,?,?)').run(sec.id, String(b.title).trim(), max, b.due_date || null, w, kind).lastInsertRowid;
   audit(req, 'gradeitem.create', { id }); flash(req, 'Graded item added.'); res.redirect('/admin/gradebook/' + id); });
 app.post('/admin/gradebook/:id/edit', T, (req, res) => { const b = req.body; const max = Number(b.max_points), w = Number(b.weight);
   if (!String(b.title || '').trim() || !(max > 0) || !(w >= 0)) { flash(req, 'Not saved: title, max points > 0 and weight ≥ 0 are required.'); return res.redirect('/admin/gradebook/' + req.params.id); }
   db.prepare('UPDATE grade_items SET title=?, max_points=?, weight=?, due_date=? WHERE id=?').run(String(b.title).trim(), max, w, b.due_date || null, req.params.id);
+  const cur = db.prepare('SELECT kind FROM grade_items WHERE id=?').get(req.params.id);
+  if (cur && cur.kind !== 'attendance' && grades.KINDS.includes(b.kind) && !db.prepare('SELECT 1 FROM assignments WHERE grade_item_id=?').get(req.params.id)) db.prepare('UPDATE grade_items SET kind=? WHERE id=?').run(b.kind, req.params.id);
   db.prepare('UPDATE assignments SET max_points=? WHERE grade_item_id=?').run(max, req.params.id);
   audit(req, 'gradeitem.update', { id: req.params.id }); flash(req, 'Item updated.'); res.redirect('/admin/gradebook/' + req.params.id); });
 app.post('/admin/gradebook/:id/delete', A, (req, res) => { if (req.body.confirm !== 'yes') { flash(req, 'Tick the confirmation box to delete this item and its grades.'); return res.redirect('/admin/gradebook/' + req.params.id); }
   db.transaction(() => { db.prepare('DELETE FROM assignments WHERE grade_item_id=?').run(req.params.id); db.prepare('DELETE FROM grade_items WHERE id=?').run(req.params.id); })();
   audit(req, 'gradeitem.delete', { id: req.params.id }); flash(req, 'Item deleted.'); res.redirect('/admin/gradebook'); });
 app.get('/admin/gradebook/class/:sid', T, (req, res) => { const sec = sectionsList().find(x => x.id === Number(req.params.sid)); if (!sec) return res.status(404).render('error', { title: 'Not found', msg: 'No such class.' });
-  res.render('admin/classgrades', { title: sec.code + ' grades', sec, rows: grades.sectionAverages(sec.id), items: db.prepare('SELECT * FROM grade_items WHERE section_id=? ORDER BY due_date, id').all(sec.id) }); });
+  if (grades.ensureItems(sec.id)) persist.schedule('grade-items');
+  res.render('admin/classgrades', { title: sec.code + ' grades', sec, board: grades.sectionBoard(sec.id), grades }); });
+app.post('/admin/gradebook/class/:sid/scheme', A, (req, res) => { const sec = sectionsList().find(x => x.id === Number(req.params.sid)); if (!sec) return res.sendStatus(404);
+  const v = grades.validateScheme(req.body); if (v.error) { flash(req, 'Not saved: ' + v.error); return res.redirect('/admin/gradebook/class/' + sec.id); }
+  grades.saveScheme(sec.id, v.s); audit(req, 'gradescheme.update', { section: sec.id, ...v.s }); flash(req, 'Grading scheme saved for ' + sec.code + '.'); res.redirect('/admin/gradebook/class/' + sec.id); });
 app.post('/admin/enrollments/:id/final', A, (req, res) => { const v = String(req.body.final_grade || '').trim().slice(0, 20) || null;
   const e = db.prepare('SELECT * FROM enrollments WHERE id=?').get(req.params.id); if (!e) return res.sendStatus(404);
   db.prepare('UPDATE enrollments SET final_grade=? WHERE id=?').run(v, e.id); audit(req, 'enrollment.final_grade', { id: e.id });
@@ -626,7 +633,7 @@ app.get('/telebe', S, (req, res) => { const s = me(req); if (!s) return res.rend
     classes: db.prepare(`SELECT c.code, c.title_az, sec.schedule, sec.room, t.name teacher FROM enrollments e JOIN sections sec ON sec.id=e.section_id JOIN courses c ON c.id=sec.course_id LEFT JOIN teachers t ON t.id=sec.teacher_id WHERE e.student_id=?`).all(s.id),
     att: db.prepare(`SELECT a.status, COUNT(*) n FROM attendance a WHERE a.student_id=? GROUP BY a.status`).all(s.id),
     avgs: grades.averages(s.id),
-    grades: db.prepare(`SELECT gi.title, gi.max_points, gi.weight, g.points, g.comment, c.code FROM grades g JOIN grade_items gi ON gi.id=g.grade_item_id JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id WHERE g.student_id=?`).all(s.id),
+    grades: db.prepare(`SELECT gi.title, gi.max_points, gi.weight, ${grades.CAT} cat, g.points, g.comment, c.code FROM grades g JOIN grade_items gi ON gi.id=g.grade_item_id JOIN sections sec ON sec.id=gi.section_id JOIN courses c ON c.id=sec.course_id WHERE g.student_id=?`).all(s.id),
     mine: hw.forStudent(req.session.user.email),
     courses: (() => { const mineC = db.prepare(`SELECT c.code, c.title_az, c.title FROM enrollments e JOIN sections sec ON sec.id=e.section_id JOIN courses c ON c.id=sec.course_id WHERE e.student_id=? ORDER BY c.code`).all(s.id);
       return mineC.length ? mineC : db.prepare('SELECT code, title_az, title FROM courses ORDER BY code').all(); })(),
@@ -638,7 +645,7 @@ const qaFor = (req) => { const s = me(req); const a = s && db.prepare(`SELECT a.
 app.get('/telebe/tapsiriq/:id', S, (req, res) => { const { s, a } = qaFor(req); if (!a) return res.status(404).render('error', { title: 'Tapılmadı', msg: 'Bu tapşırıq tapılmadı.', lang: 'az' });
   const l = a.lesson_id ? lessons.lesson(a.lesson_id) : null; const mine = db.prepare(`SELECT id, status, submitted_at, source FROM hw_submissions WHERE student_id=? AND assignment_id=? ORDER BY id DESC`).all(s.id, a.id);
   const open = mine.find(m => m.status === 'submitted'); const prev = open ? Object.fromEntries(lessons.answers(open.id).map(x => [x.question_n, x.answer_text])) : {};
-  res.render('student/qa', { title: a.title_az, lang: 'az', a, l, qs: lessons.questions(a.id), mine, prev, late, summaryHtml: l ? notes.render(l.summary_az || l.summary_en || '') : '', CHOOSE: a.choose_n || lessons.CHOOSE }); });
+  res.render('student/qa', { title: a.title_az, lang: 'az', a, l, qs: lessons.questions(a.id), mine, prev, late, summaryHtml: l ? notes.render(l.summary_az || l.summary_en || '') : '', CHOOSE: a.choose_n || lessons.CHOOSE, hwEach: grades.hwEach(a.section_id), fmt: grades.fmt }); });
 app.post('/telebe/tapsiriq/:id/cavablar', S, (req, res) => { const { s, a } = qaFor(req); if (!a) { flash(req, 'Tapşırıq tapılmadı.'); return res.redirect('/telebe#tapsiriqlarim'); }
   const choose = a.choose_n || lessons.CHOOSE; const filled = lessons.questions(a.id).map(q => ({ question: q.n, text: String(req.body['a' + q.n] || '').trim() })).filter(x => x.text);
   if (filled.length !== choose) { flash(req, `Zəhmət olmasa, beş sualdan düz ${choose} sual seçib cavab yazın (indi ${filled.length} cavab var).`); return res.redirect('/telebe/tapsiriq/' + a.id); }
@@ -677,6 +684,7 @@ app.get('/telebe/xulaseler/:slug', N, (req, res) => { const n = notes.get(req.pa
   if (!n) return res.status(404).render('error', { title: 'Tapılmadı', msg: 'Bu xülasə tapılmadı.' });
   res.render('student/note', { title: n.title, n, lang: 'az' }); });
 
+app.locals.fmt = grades.fmt;
 app.use((req, res) => res.status(404).render('error', { title: 'Not found', msg: 'Page not found.' }));
 app.use((err, req, res, _n) => { console.error(err); res.status(500).render('error', { title: 'Error', msg: 'Something went wrong.' }); });
 if (require.main === module) {
@@ -691,6 +699,7 @@ if (require.main === module) {
   // No scan = absent: once a class week is over, anyone enrolled with no mark for a session that was held gets 'absent'
   // (a teacher can still change it to excused/present on the Attendance page). Runs at boot and hourly.
   const close = () => { try { const r = attqr.closePastWeeks(); if (r.closed) persist.schedule('qr-absent'); if (r.absent) console.log('QR: week closed; ' + r.absent + ' no-scan absence(s) recorded.'); } catch (e) { console.error('QR close:', e.message); } };
+  try { if (grades.ensureItems()) persist.schedule('grade-items'); } catch (e) { console.error('Grade items:', e.message); }
   topUp(); close(); setInterval(() => { topUp(); close(); }, 60 * 60e3).unref();
   app.listen(PORT, () => console.log(`Baku Bible Institute on http://localhost:${PORT} (demo=${DEMO})`));
 }

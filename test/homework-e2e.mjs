@@ -51,15 +51,15 @@ assert.equal((await api(`/${item.id}/return`, { return_az: 'again' })).status, 4
 sh = await st.text('/telebe'); assert.match(sh, /Romalılara 5:1–2 ayələrini/); assert.match(sh, /Bal: 40 \/ 50/); assert.match(sh, /TEST — Romalılara 5 esse: <b>40<\/b>/); step('Azeri feedback + score visible to student, gradebook updated');
 assert.match(await admin.text('/admin/outbox'), /Tapşırığınıza rəy hazırdır: TEST — Romalılara 5 esse/); step('return notice queued as pending (not sent)');
 // 5. Grades: exam item with weight 2, comment, weighted average, final course grade.
-r = await admin.post('/admin/gradebook', { section_id: secId, title: 'TEST — Exam', max_points: '100', weight: '2', due_date: '' }, '/admin/gradebook'); const gid = r.headers.get('location').split('/').pop();
+r = await admin.post('/admin/gradebook', { section_id: secId, title: 'TEST — Exam', max_points: '100', weight: '2', kind: 'final', due_date: '' }, '/admin/gradebook'); const gid = r.headers.get('location').split('/').pop();
 const gi = await admin.text('/admin/gradebook/' + gid); const sid = gi.match(/name="p_(\d+)"/g).map(x => x.match(/\d+/)[0]);
 const rowSid = [...gi.matchAll(/<tr><td>([^<]+)<\/td><td><input[^>]+name="p_(\d+)"/g)].find(m => home.includes(m[1].split(' ')[0]))?.[2] || sid[0];
 await admin.post('/admin/gradebook/' + gid, { ['p_' + rowSid]: '70', ['c_' + rowSid]: 'TEST comment: yaxşı iş!' }, '/admin/gradebook/' + gid);
 sh = await st.text('/telebe'); assert.match(sh, /Müəllimin qeydi: TEST comment: yaxşı iş!/);
-// weighted: homework 40/50 (w1) = 80%, exam 70/100 (w2) => (0.8 + 1.4)/3 = 73.3%
-assert.match(sh, new RegExp(CLASS + '</b> — orta bal: <b>73\\.3%')); step('grade comment + weighted average 73.3% shown to student');
+// weighted scheme: the exam counts as the Final exam (25%); the free-form essay is "other" (not counted) => 70% on a final of 70/100
+assert.match(sh, /Yekun imtahan<br>[\s\S]*?<td>25%<\/td>\s*<td>70%<\/td>/); assert.match(sh, /Hazırkı nəticəniz: <b>(70|\d+),?\d*%<\/b>/); step('grade comment + weighted breakdown (final exam 70% of 25) shown to student');
 const cg = await admin.text('/admin/gradebook/class/' + secId); const enr = [...cg.matchAll(/\/admin\/enrollments\/(\d+)\/final/g)];
-const myRow = cg.split('<tr>').find(x => x.includes('73.3%')); const eid = myRow.match(/\/admin\/enrollments\/(\d+)\/final/)[1];
+const myRow = cg.split('<tr>').find(x => /\/admin\/enrollments\/\d+\/final/.test(x) && x.includes('70%')); const eid = myRow.match(/\/admin\/enrollments\/(\d+)\/final/)[1];
 await admin.post(`/admin/enrollments/${eid}/final`, { final_grade: 'TEST-B+', back: '/admin/gradebook/class/' + secId }, '/admin/gradebook/class/' + secId);
 assert.match(await st.text('/telebe'), /Yekun qiymət: TEST-B\+/); step('final course grade shown to student');
 // 6. Clean up everything this test created.

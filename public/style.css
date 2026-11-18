@@ -110,3 +110,7 @@ a.notes-link{display:block;text-decoration:none;color:inherit;border-left:4px so
 .err-list{color:var(--red);padding-left:1.2em;margin:8px 0}
 .login .card{width:min(460px,100%)}
 @media print{.qr-steps{font-size:1.5rem;border-color:#000}}
+.tablewrap{overflow-x:auto;margin-bottom:16px}.tablewrap .tbl{margin-bottom:0;min-width:760px}
+.scheme-list{list-style:none;padding:0;margin:14px 0}.scheme-list li{display:flex;gap:16px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--line)}.scheme-list li:first-child{border-top:0}.scheme-list .pct{flex:0 0 76px;font-family:'Cormorant Garamond',serif;font-size:30px;color:var(--navy);line-height:1}
+.scheme-card .en{font-style:italic}
+.gb-table{width:100%;border-collapse:collapse;font-size:14px;margin:8px 0}.gb-table th,.gb-table td{padding:8px 6px;border-top:1px solid var(--line);text-align:left;vertical-align:top}.gb-table th{font-size:12px;letter-spacing:.04em;color:var(--muted,#6b6b6b)}

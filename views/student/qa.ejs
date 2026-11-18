@@ -1,6 +1,7 @@
 <%- include('../partials/head', { lang: 'az' }) %>
 <div class="pagehead rise"><div><p class="eyebrow"><a href="/telebe#tapsiriqlarim">Tapşırıqlarım</a> · <%= a.code %><% if (a.due_at) { %> · Son tarix: <%= late.fmtBaku(a.due_at) %> (Bakı vaxtı)<% } %> · <%= a.max_points %> bal</p><h1><%= a.title_az %></h1></div></div>
 <% if (summaryHtml) { %><section class="card rise d1 note-body"><h2>Dərsin xülasəsi</h2><%- summaryHtml %></section><% } %>
+<p class="note small rise d1">Bu tapşırıq 30 baldır (3 cavab × 10 bal) və yekun qiymətinizin <b><%= fmt(hwEach) %>%</b>-ni təşkil edir. <a href="/telebe#qiymetlendirme">Qiymətləndirmə qaydası</a><br><span class="muted"><i>This assignment is 30 points (3 answers × 10 points) and counts for <%= fmt(hwEach) %>% of your final grade.</i></span></p>
 <section class="card rise d2"><h2>Beş sualdan <%= CHOOSE %>-nü seçin</h2>
 <% if (a.instructions_az) { %><p class="muted"><%= a.instructions_az %></p><% } %>
 <% if (mine.length) { %><p class="note small">Göndərilib: <%= late.fmtBaku(mine[0].submitted_at) %> (Bakı vaxtı)<%= mine[0].status==='submitted' ? ' — müəllim yoxlayana qədər cavablarınızı dəyişə bilərsiniz.' : ' — müəllim yoxlayır.' %></p><% } %>

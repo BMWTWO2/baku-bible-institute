@@ -1,6 +1,28 @@
 <%- include('../partials/head') %>
-<div class="pagehead rise"><div><p class="eyebrow"><a href="/admin/gradebook">Gradebook</a></p><h1><%= sec.code %> · <%= sec.title %></h1><p class="muted">Weighted averages (<%= items.length %> graded item<%= items.length===1?'':'s' %>). Final course grades are shown to students.</p></div></div>
-<table class="tbl rise d1"><thead><tr><th>Student</th><th>Weighted average</th><th>Final course grade</th></tr></thead><tbody>
-<% rows.forEach(r=>{ %><tr><td><a href="/admin/students/<%= r.id %>"><%= r.name %></a></td><td><%= r.pct==null ? '—' : r.pct + '%' %></td><td>
-<% if (user.role==='admin') { %><form method="post" action="/admin/enrollments/<%= r.enrollment_id %>/final" class="row"><input type="hidden" name="_csrf" value="<%= csrf %>"><input type="hidden" name="back" value="/admin/gradebook/class/<%= sec.id %>"><input name="final_grade" value="<%= r.final_grade||'' %>" maxlength="20" placeholder="e.g. A or 92" style="width:130px"><button class="btn sm">Save</button></form><% } else { %><%= r.final_grade || '—' %><% } %></td></tr><% }) %></tbody></table>
+<% const sch=board.sch, f=grades.fmt; const hw=board.items.filter(i=>i.cat==='homework').sort((a,b)=>String(a.due_date||'~').localeCompare(String(b.due_date||'~'))||a.id-b.id); const other=board.items.filter(i=>i.cat==='other'); %>
+<div class="pagehead rise"><div><p class="eyebrow"><a href="/admin/gradebook">Gradebook</a></p><h1><%= sec.code %> · <%= sec.title %></h1>
+<p class="muted">Weighted grade: attendance + participation <b><%= f(sch.attendance) %>%</b> · final exam <b><%= f(sch.final_exam) %>%</b> · written assignments <b><%= f(sch.homework) %>%</b> (<%= sch.hw_count %> × <%= f(sch.homework/Math.max(sch.hw_count,hw.length)) %>%). Final course grades are shown to students.</p></div></div>
+<section class="card rise d1"><h2>How to read this</h2>
+<ul class="small">
+<li><b>Running grade</b> = points earned ÷ weight graded so far. Anything not graded yet is <b>not</b> counted as zero, so a student's running grade only reflects work that has been scored.</li>
+<li><b>Earned / counted</b> shows how much of the 100 has been graded so far (for example 13.4 of 65). <b>If nothing more is earned</b> is the grade if every ungraded part ended up as zero.</li>
+<li>Attendance + participation: attendance (automatic from QR check-in; excused and late count as present) is <%= f(100*(1-sch.participation_share)) %>% of this part and participation (you enter it) is <%= f(100*sch.participation_share) %>%. Until a participation score is entered, attendance alone stands for the whole part.</li>
+<li>Scores: <a href="<%= (board.items.find(i=>i.cat==='participation')||{}).id ? '/admin/gradebook/'+board.items.find(i=>i.cat==='participation').id : '#' %>">Class participation</a> · <a href="<%= (board.items.find(i=>i.cat==='final')||{}).id ? '/admin/gradebook/'+board.items.find(i=>i.cat==='final').id : '#' %>">Final exam</a> (enter out of 100).</li>
+</ul>
+<% if (other.length) { %><p class="small muted">Not counted in the weighted grade: <%= other.map(i=>i.title).join(', ') %>. Open the item to change what it counts as.</p><% } %></section>
+<div class="tablewrap"><table class="tbl rise d1"><thead><tr><th>Student</th><th>Attendance</th><th>Participation</th><th>Final exam</th><% for (let i=0;i<board.hwSlots;i++) { %><th>Assignment <%= i+1 %></th><% } %><th>Running grade</th><th>Earned / counted</th><th>If nothing more earned</th><th>Final course grade</th></tr></thead><tbody>
+<% board.rows.forEach(r=>{ const bd=r.bd; const h=bd.comps.filter(c=>c.key==='homework'); %><tr><td><a href="/admin/students/<%= r.id %>"><%= r.name %></a></td>
+<td><%= bd.att==null ? '—' : f(bd.att)+'%' %></td><td><%= bd.par==null ? '—' : f(bd.par)+'%' %></td><td><%= bd.comps[1].pct==null ? '—' : f(bd.comps[1].pct)+'%' %></td>
+<% h.forEach(c=>{ %><td><%= c.pct==null ? '—' : (c.points!=null ? f(c.points)+'/'+f(c.max)+' · ' : '') + f(c.pct)+'%' %></td><% }) %>
+<td><b><%= bd.running==null ? '—' : f(bd.running)+'%' %></b></td><td class="small"><%= f(bd.earned) %> of <%= f(bd.counted) %> <span class="muted">(of <%= f(bd.total) %>)</span></td><td><%= bd.ifNoMore==null ? '—' : f(bd.ifNoMore)+'%' %></td><td>
+<% if (user.role==='admin') { %><form method="post" action="/admin/enrollments/<%= r.enrollment_id %>/final" class="row"><input type="hidden" name="_csrf" value="<%= csrf %>"><input type="hidden" name="back" value="/admin/gradebook/class/<%= sec.id %>"><input name="final_grade" value="<%= r.final_grade||'' %>" maxlength="20" placeholder="e.g. A or 92" style="width:110px"><button class="btn sm">Save</button></form><% } else { %><%= r.final_grade || '—' %><% } %></td></tr><% }) %></tbody></table></div>
+<% if (user.role==='admin') { %><details class="card rise d2"><summary><b>Change this class's grading scheme</b></summary>
+<form method="post" action="/admin/gradebook/class/<%= sec.id %>/scheme" class="formgrid"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<label>Attendance + participation %<input class="num" type="number" name="attendance" min="0" max="100" step="0.5" value="<%= sch.attendance %>" required></label>
+<label>Final exam %<input class="num" type="number" name="final_exam" min="0" max="100" step="0.5" value="<%= sch.final_exam %>" required></label>
+<label>Written assignments % (total)<input class="num" type="number" name="homework" min="0" max="100" step="0.5" value="<%= sch.homework %>" required></label>
+<label>Number of written assignments<input class="num" type="number" name="hw_count" min="1" max="10" value="<%= sch.hw_count %>" required></label>
+<label>Participation's share inside attendance + participation %<input class="num" type="number" name="participation_pct" min="0" max="100" step="5" value="<%= 100*sch.participation_share %>" required></label>
+<p class="small muted span">The three percentages must add up to 100. Students see these numbers on their page.</p>
+<div><button class="btn">Save scheme</button></div></form></details><% } %>
 <%- include('../partials/foot') %>

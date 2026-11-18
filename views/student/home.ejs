@@ -5,9 +5,14 @@
 <% if (c('absent')>2) { %><p class="note">Diqqət: 2-dən çox üzrsüz qayıbınız var. Zəhmət olmasa müəlliminizlə əlaqə saxlayın.</p><% } %>
 <div class="cols rise d2"><section class="card"><h2>Dərslərim</h2><ul><% classes.forEach(x=>{ %><li><b><%= x.code %></b> — <%= x.title_az %><br><span class="small muted"><%= x.teacher %> · <%= x.schedule %> · <%= x.room %></span></li><% }) %></ul></section>
 <section class="card"><h2>Qiymətlərim</h2>
-<% avgs.forEach(a=>{ %><p><b><%= a.code %></b> — orta bal: <b><%= a.pct==null ? 'hələ qiymət yoxdur' : a.pct + '%' %></b><% if (a.final_grade) { %> · <span class="pill green">Yekun qiymət: <%= a.final_grade %></span><% } %></p><% }) %>
-<ul><% grades.filter(g=>g.points!=null||g.comment).forEach(g=>{ %><li><%= g.code %> · <%= g.title %>: <b><%= g.points ?? '—' %></b> / <%= g.max_points %><% if (g.comment) { %><br><span class="small">Müəllimin qeydi: <%= g.comment %></span><% } %></li><% }) %></ul>
-<p class="small muted">Orta bal hər qiymətin çəkisi nəzərə alınaraq hesablanır.</p></section></div>
+<% avgs.forEach(a=>{ const bd=a.bd; %><div class="gb-course"><p><b><%= a.code %></b> — <%= a.title_az || a.title %><% if (a.final_grade) { %> · <span class="pill green">Yekun qiymət: <%= a.final_grade %></span><% } %></p>
+<table class="gb-table"><thead><tr><th>Bölmə</th><th>Çəki</th><th>Nəticəniz</th><th>Qazandığınız</th></tr></thead><tbody>
+<% bd.comps.forEach(c=>{ %><tr><td><%= c.key==='attendance' ? 'Davamiyyət və iştirak' : c.key==='final' ? 'Yekun imtahan' : 'Yazılı tapşırıq ' + c.n %><br><span class="small muted"><%= c.key==='attendance' ? 'Attendance & participation' : c.key==='final' ? 'Final exam' : 'Written assignment ' + c.n %></span></td><td><%= fmt(c.weight) %>%</td>
+<td><%= c.pct==null ? 'hələ yoxdur' : fmt(c.pct)+'%' %><% if (c.key==='homework' && c.points!=null) { %><br><span class="small muted"><%= fmt(c.points) %> / <%= fmt(c.max) %> bal</span><% } %></td><td><%= c.earned==null ? '—' : fmt(c.earned)+'%' %></td></tr><% }) %></tbody></table>
+<p>Hazırkı nəticəniz: <b><%= bd.running==null ? 'hələ qiymət yoxdur' : fmt(bd.running)+'%' %></b><br><span class="small muted">Your result so far (graded parts only)<% if (bd.running!=null) { %> · <%= fmt(bd.earned) %> of the <%= fmt(bd.counted) %> points graded so far<% } %></span></p></div><% }) %>
+<ul><% grades.filter(g=>g.comment || (g.cat==='other' && g.points!=null)).forEach(g=>{ %><li><%= g.code %> · <%= g.title %>: <b><%= g.points ?? '—' %></b> / <%= g.max_points %><% if (g.comment) { %><br><span class="small">Müəllimin qeydi: <%= g.comment %></span><% } %></li><% }) %></ul>
+<p class="small muted"><a href="#qiymetlendirme">Qiymətləndirmə qaydası</a> — hələ qiymətləndirilməyən hissələr hesaba qatılmır. / How grading works — parts not yet graded are not counted.</p></section></div>
+<% if (avgs.length) { %><%- include('_scheme', { sch: avgs[0].sch, hwEach: (avgs[0].sch.homework / Math.max(avgs[0].sch.hw_count, avgs[0].bd.comps.filter(c=>c.key==='homework').length)), f: fmt }) %><% } %>
 <a class="card notes-link rise d2" href="/telebe/xulaseler"><p class="eyebrow">Dərs xülasələri</p><h3>Dərslərin qısa xülasələri</h3><p class="muted">Hər dərsdən sonra dərsin qısa xülasəsini burada oxuya bilərsiniz. →</p></a>
 <h2 class="rise" id="tapsiriqlarim">Tapşırıqlarım</h2>
 <p class="muted small rise">Bütün vaxtlar Bakı vaxtı ilədir. Tapşırığı istənilən vaxt göndərə bilərsiniz. Son tarixdən sonra göndərilsə, gecikməyə görə baldan bir az çıxılır (nə qədər gec, o qədər çox).</p>
