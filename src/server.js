@@ -694,6 +694,15 @@ if (require.main === module) {
     const bye = () => { persist.flush().finally(() => process.exit(0)); setTimeout(() => process.exit(0), 8000).unref(); };
     process.on('SIGTERM', bye); process.on('SIGINT', bye);
   }
+  // One-time admin password reset: if BBI_ADMIN_RESET_HASH (a bcrypt hash) is set, apply it to the admin user whose email is BBI_ADMIN_EMAIL.
+  // Applies only when the stored hash differs, so a restart never re-applies it. Remove the env var afterwards. The hash is never logged.
+  try {
+    const rh = process.env.BBI_ADMIN_RESET_HASH, ae = String(process.env.BBI_ADMIN_EMAIL || '').trim().toLowerCase();
+    if (rh && /^\$2[aby]\$\d\d\$.{53}$/.test(rh) && ae) {
+      const au = db.prepare("SELECT id, password_hash FROM users WHERE role='admin' AND lower(email)=?").get(ae);
+      if (au && au.password_hash !== rh) { db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(rh, au.id); console.log('admin password reset applied'); persist.schedule('admin-reset'); }
+    }
+  } catch (e) { console.error('Admin reset failed:', e.message); }
   // QR attendance: make sure this week's (and the next 4 weeks') check-in codes exist; re-check hourly so a new week's code appears on time.
   const topUp = () => { try { if (attqr.ensureWindow()) persist.schedule('qr-codes'); } catch (e) { console.error('QR codes:', e.message); } };
   // No scan = absent: once a class week is over, anyone enrolled with no mark for a session that was held gets 'absent'
