@@ -13,5 +13,6 @@
 <% if (error) { %><p class="err"><%= error %></p><% } %>
 <form method="post" action="/login"><input type="hidden" name="_csrf" value="<%= csrf %>"><input type="hidden" name="next" value="<%= next %>">
 <label>Email<input name="email" type="email" required autocomplete="username"></label><label>Password · Şifrə<input name="password" type="password" required autocomplete="current-password"></label><button class="btn full">Daxil ol · Sign in</button></form>
+<p class="small forgot-link" style="text-align:center;margin-top:.9rem"><a href="/forgot-password">Forgot password? · Şifrəni unutmusunuz?</a></p>
 <% if (demo) { %><p class="muted small">Demo logins are listed in DEMO_LOGINS.md.</p><% } %></div></section>
 <%- include('partials/foot') %>

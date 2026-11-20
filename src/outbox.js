@@ -32,6 +32,25 @@ async function send(id, by) {
     db.prepare(`UPDATE email_outbox SET status='sent', sent_at=?, approved_by=?, error=NULL WHERE id=?`).run(now(), by, id); return { ok: true };
   } catch (e) { db.prepare(`UPDATE email_outbox SET status='failed', error=?, approved_by=? WHERE id=?`).run(String(e.message).slice(0, 200), by, id); return { ok: false, error: e.message }; }
 }
+// Transactional mail (password reset ONLY). Goes straight to one address, never through the approval queue.
+// Still obeys the master switch: nothing leaves unless EMAIL_SENDING_ENABLED=true and a SendGrid key exists.
+// Test hook (NODE_ENV=test only): PWRESET_TEST_MAILBOX=<file> appends the message to that file instead of sending.
+const testBox = () => (process.env.NODE_ENV === 'test' && process.env.PWRESET_TEST_MAILBOX) || '';
+const canSendTransactional = () => { if (testBox()) return true; const c = cfg(); return c.enabled && c.hasKey; };
+async function sendTransactional({ to, subject, text }) {
+  const c = cfg(); const addr = String(to || '').trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(addr)) return { ok: false, error: 'bad address' };
+  if (testBox()) { require('fs').appendFileSync(testBox(), JSON.stringify({ to: addr, subject, text }) + '\n'); return { ok: true }; }
+  if (!canSendTransactional()) return { ok: false, error: 'email sending is off' };
+  if (addr.toLowerCase().endsWith('.invalid')) return { ok: false, error: 'test address' };
+  try {
+    const r = await fetch('https://api.sendgrid.com/v3/mail/send', { method: 'POST', headers: { authorization: 'Bearer ' + process.env.SENDGRID_API_KEY, 'content-type': 'application/json' },
+      body: JSON.stringify({ personalizations: [{ to: [{ email: addr }] }], from: { email: c.from, name: c.fromName }, ...(c.replyTo ? { reply_to: { email: c.replyTo } } : {}),
+        subject, content: [{ type: 'text/plain', value: text }] }) });
+    if (!r.ok) throw new Error('SendGrid ' + r.status);
+    return { ok: true };
+  } catch (e) { return { ok: false, error: String(e.message).slice(0, 100) }; }
+}
 // Credential check WITHOUT sending anything: asks SendGrid which permissions the key has.
 async function verify() {
   const c = cfg(); if (!c.hasKey) return { ok: false, detail: 'SENDGRID_API_KEY is not set on this service.' };
@@ -49,4 +68,4 @@ const tplAssignment = ({ name, code, title, due, instructions }) => ({ subject: 
   text: `Hörmətli ${first(name)},\n\n${OPEN}\n\n${code} dərsi üçün yeni tapşırıq var: «${title}».${due ? `\nSon tarix: ${due} (Bakı vaxtı).` : ''}${instructions ? `\n\n${instructions}` : ''}\n\nTapşırığı istənilən vaxt kabinetinizdən göndərə bilərsiniz:\n${SITE()}/telebe${SIGN}` });
 const tplReturned = ({ name, title, feedback, score }) => ({ subject: `Tapşırığınıza rəy hazırdır: ${title}`,
   text: `Hörmətli ${first(name)},\n\n${OPEN}\n\n«${title}» tapşırığınızı yoxladım. Rəyim:\n\n${feedback}${score ? `\n\n${score}` : ''}\n\nRəyi kabinetinizdə də görə bilərsiniz:\n${SITE()}/telebe${SIGN}` });
-module.exports = { cfg, queue, list, counts, discard, edit, remove, send, verify, tplAssignment, tplReturned };
+module.exports = { cfg, canSendTransactional, sendTransactional, queue, list, counts, discard, edit, remove, send, verify, tplAssignment, tplReturned };

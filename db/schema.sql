@@ -37,3 +37,6 @@ CREATE TABLE IF NOT EXISTS enrollment_requests (id INTEGER PRIMARY KEY, created_
 CREATE INDEX IF NOT EXISTS enrollment_requests_notified ON enrollment_requests(notified);
 CREATE TABLE IF NOT EXISTS login_welcomes (id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE, user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, email TEXT NOT NULL, name TEXT NOT NULL, temp_password TEXT NOT NULL, source TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, emailed_at TEXT);
 CREATE INDEX IF NOT EXISTS login_welcomes_emailed ON login_welcomes(emailed_at);
+-- Self-service password reset: only the SHA-256 hash of the emailed token is stored. Single use, 60-minute expiry.
+CREATE TABLE IF NOT EXISTS password_resets (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, token_hash TEXT UNIQUE NOT NULL, expires_at TEXT NOT NULL, used_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);

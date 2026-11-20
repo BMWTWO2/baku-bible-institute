@@ -95,6 +95,10 @@ function csrfGuard(req, res, next) {
         req.session.flash = 'That form was out of date. Please try again. · Forma köhnəlib, zəhmət olmasa yenidən yoxlayın.';
         return res.redirect('/#qeydiyyat');
       }
+      if (req.path === '/forgot-password' || req.path === '/reset-password') {
+        req.session.flash = 'That form was out of date. Please try again. · Forma köhnəlib, zəhmət olmasa yenidən yoxlayın.';
+        return res.redirect('/forgot-password');
+      }
       if (/^\/qeyd\/[\w-]{1,64}\/qeydiyyat$/.test(req.path)) {
         req.session.flash = 'Forma köhnəlib, zəhmət olmasa yenidən yoxlayın. · That form was out of date. Please try again.';
         return res.redirect(req.path);
@@ -114,4 +118,18 @@ function csrfGuard(req, res, next) {
   next();
 }
 
-module.exports = { middleware, csrfGuard, safeNext, secret, COOKIE_MS, STUDENT_MS, keepStudent, studentPersist, localNext, isQrNext, qrTokenFromNext };
+// Sign a user out everywhere (used after a password reset). Works for the Postgres store and the in-memory store.
+function destroyUserSessions(store, userId) {
+  return new Promise(resolve => {
+    try {
+      const done = () => resolve();
+      if (store && store.pool) return store.pool.query(`DELETE FROM bbi_sessions WHERE (sess->'user'->>'id') = $1`, [String(userId)]).then(done, e => { console.error('Session cleanup:', prune(e)); done(); });
+      if (store && typeof store.all === 'function') return store.all((err, all) => { if (err || !all) return done();
+        const ids = Object.keys(all).filter(k => all[k] && all[k].user && String(all[k].user.id) === String(userId));
+        let n = ids.length; if (!n) return done(); ids.forEach(id => store.destroy(id, () => { if (--n === 0) done(); })); });
+    } catch (e) { console.error('Session cleanup:', prune(e)); }
+    resolve();
+  });
+}
+
+module.exports = { destroyUserSessions, middleware, csrfGuard, safeNext, secret, COOKIE_MS, STUDENT_MS, keepStudent, studentPersist, localNext, isQrNext, qrTokenFromNext };

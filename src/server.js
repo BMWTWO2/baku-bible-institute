@@ -2,7 +2,7 @@ const path = require('path'); const crypto = require('crypto');
 const express = require('express'); const bcrypt = require('bcryptjs');
 const db = require('./db'); const wa = require('./whatsapp'); const bots = require('./bots'); const { draftCorrection } = require('./azeri'); const notes = require('./notes');
 const hw = require('./homework'); const outbox = require('./outbox'); const grades = require('./grades'); const late = require('./late'); const persist = require('./persist'); const inbound = require('./inbound'); const sessions = require('./sessions'); const attqr = require('./attqr'); const lessons = require('./lessons');
-const enroll = require('./enroll');
+const enroll = require('./enroll'); const pwreset = require('./pwreset');
 
 const app = express(); const PORT = Number(process.env.PORT || 3050);
 const DEMO = process.env.DEMO_MODE != null ? process.env.DEMO_MODE !== 'false' : process.env.NODE_ENV !== 'production';
@@ -198,6 +198,32 @@ app.post('/login', (req, res) => {
   req.session.regenerate(() => { req.session.user = { id: u.id, name: u.name, role: u.role, email: u.email }; sessions.keepStudent(req.session); const n = sessions.localNext(req.body.next);
     res.redirect(n || (u.role === 'student' ? '/telebe' : u.role === 'teacher' ? '/admin/attendance' : '/admin')); });
 });
+// Forgot password (all roles). The answer is ALWAYS the same neutral message.
+const noReferrer = (_q, res, next) => { res.set('Referrer-Policy', 'no-referrer'); res.set('Cache-Control', 'no-store'); next(); };
+app.get('/forgot-password', noReferrer, (req, res) => res.render('forgot-password', { title: 'Forgot password', sent: false, email: '' }));
+app.post('/forgot-password', noReferrer, (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase().slice(0, 254);
+  // Respond first with the same neutral page in every case; send (or not) in the background.
+  res.render('forgot-password', { title: 'Forgot password', sent: true, email: '' });
+  pwreset.request(email, req.ip).then(r => {
+    if (r.sent) { db.prepare('INSERT INTO audit_log (user_id, action, detail) VALUES (?,?,?)').run(r.user_id, 'password.reset.request', '{}'); persist.schedule('pw-reset-request'); }
+    else if (r.reason === 'email-disabled') console.log('Password reset requested but email sending is off (EMAIL_SENDING_ENABLED/SENDGRID_API_KEY); nothing sent.');
+    else if (r.reason === 'send-failed') console.error('Password reset email failed:', r.error);
+    else if (r.reason === 'limited') console.log('Password reset rate-limited.');
+  }).catch(e => console.error('Password reset error:', String(e.message).slice(0, 100)));
+});
+app.get('/reset-password', noReferrer, (req, res) => { const token = String(req.query.token || ''); const ok = !!pwreset.lookup(token);
+  res.status(ok ? 200 : 400).render('reset-password', { title: 'Reset password', token: ok ? token : '', invalid: !ok, error: null }); });
+app.post('/reset-password', noReferrer, async (req, res) => { const token = String(req.body.token || '');
+  const r = pwreset.complete(token, req.body.password, req.body.confirm_password);
+  if (r.error === 'invalid') return res.status(400).render('reset-password', { title: 'Reset password', token: '', invalid: true, error: null });
+  if (r.error) return res.status(400).render('reset-password', { title: 'Reset password', token, invalid: false,
+    error: r.error === 'short' ? 'Password must be at least 8 characters. · Şifrə ən azı 8 simvol olmalıdır.' : 'The two passwords do not match. · İki şifrə eyni deyil.' });
+  db.prepare('INSERT INTO audit_log (user_id, action, detail) VALUES (?,?,?)').run(r.user.id, 'password.reset.complete', '{}');
+  await sessions.destroyUserSessions(req.sessionStore, r.user.id);
+  persist.schedule('pw-reset-complete');
+  delete req.session.user; req.session.flash = 'Your password was changed. Please sign in. · Şifrəniz dəyişdirildi. İndi daxil ola bilərsiniz.';
+  res.redirect('/login'); });
 app.post('/logout', (req, res) => req.session.destroy(() => res.redirect('/')));
 
 // Admin dashboard
