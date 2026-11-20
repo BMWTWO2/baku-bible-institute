@@ -207,7 +207,7 @@ app.post('/forgot-password', noReferrer, (req, res) => {
   res.render('forgot-password', { title: 'Forgot password', sent: true, email: '' });
   pwreset.request(email, req.ip).then(r => {
     if (r.sent) { db.prepare('INSERT INTO audit_log (user_id, action, detail) VALUES (?,?,?)').run(r.user_id, 'password.reset.request', '{}'); persist.schedule('pw-reset-request'); }
-    else if (r.reason === 'email-disabled') console.log('Password reset requested but email sending is off (EMAIL_SENDING_ENABLED/SENDGRID_API_KEY); nothing sent.');
+    else if (r.reason === 'email-disabled') console.log('Password reset requested but email sending is off (EMAIL_SENDING_ENABLED/mail credential); nothing sent.');
     else if (r.reason === 'send-failed') console.error('Password reset email failed:', r.error);
     else if (r.reason === 'limited') console.log('Password reset rate-limited.');
   }).catch(e => console.error('Password reset error:', String(e.message).slice(0, 100)));
