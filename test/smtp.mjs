@@ -20,11 +20,13 @@ assert.equal((await outbox.sendTransactional({ to: 'a@b.co', subject: 's', text:
 // 2) switch on -> send path uses SMTP with spaces stripped, port 465 secure, From name
 process.env.EMAIL_SENDING_ENABLED = 'true';
 assert.equal((await outbox.send(id, 'admin')).ok, true);
-assert.equal(sent.length, 1); assert.equal(opts.auth.pass, 'abcdefghijklmnop'); assert.equal(opts.port, 465); assert.equal(opts.secure, true); assert.equal(opts.host, 'smtp.gmail.com');
+assert.equal(sent.length, 1); assert.equal(opts.auth.pass, 'abcdefghijklmnop'); assert.equal(opts.port, 465); assert.equal(opts.secure, true); assert.ok(!opts.requireTLS); assert.equal(opts.host, 'smtp.gmail.com');
 assert.deepEqual(sent[0].from, { name: 'Baku Bible Institute', address: 'sender@test.invalid' }); assert.equal(sent[0].subject, 'S');
 assert.equal(outbox.counts().sent, 1);
+process.env.SMTP_PORT = '587'; await outbox.send(outbox.queue({ to: 'z@test.invalid-not', subject: 'S2', text: 'T' }), 'admin');
+assert.equal(opts.port, 587); assert.equal(opts.secure, false); assert.equal(opts.requireTLS, true); delete process.env.SMTP_PORT;
 // 3) transactional path
-assert.equal((await outbox.sendTransactional({ to: 'a@b.co', subject: 'R', text: 'X' })).ok, true); assert.equal(sent.length, 2);
+assert.equal((await outbox.sendTransactional({ to: 'a@b.co', subject: 'R', text: 'X' })).ok, true); assert.equal(sent.length, 3);
 // 4) verify
 assert.equal((await outbox.verify()).ok, true); failVerify = true;
 const v = await outbox.verify(); assert.equal(v.ok, false); assert.ok(!v.detail.includes('abcdefgh'));

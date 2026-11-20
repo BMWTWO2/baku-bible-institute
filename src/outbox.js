@@ -9,7 +9,7 @@ const hasSmtp = () => !!(process.env.SMTP_HOST && process.env.SMTP_USER && smtpP
 let _tx = null, _txKey = '';
 function transporter() {
   const port = parseInt(process.env.SMTP_PORT || '465', 10), key = [process.env.SMTP_HOST, port, process.env.SMTP_USER, smtpPass()].join('|');
-  if (!_tx || _txKey !== key) { _txKey = key; _tx = require('nodemailer').createTransport({ host: process.env.SMTP_HOST, port, secure: port === 465,
+  if (!_tx || _txKey !== key) { _txKey = key; _tx = require('nodemailer').createTransport({ host: process.env.SMTP_HOST, port, secure: port === 465, requireTLS: port !== 465,
     auth: { user: process.env.SMTP_USER, pass: smtpPass() }, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 20000 }); }
   return _tx;
 }
