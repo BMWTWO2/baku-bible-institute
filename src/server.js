@@ -737,5 +737,10 @@ if (require.main === module) {
   try { if (grades.ensureItems()) persist.schedule('grade-items'); } catch (e) { console.error('Grade items:', e.message); }
   topUp(); close(); setInterval(() => { topUp(); close(); }, 60 * 60e3).unref();
   app.listen(PORT, () => console.log(`Baku Bible Institute on http://localhost:${PORT} (demo=${DEMO})`));
+  // One-shot SMTP smoke test (TEMPORARY; remove the env var after use). Sends ONE fixed message to the single address in BBI_SMTP_TEST_TO.
+  if (process.env.BBI_SMTP_TEST_TO) (async () => {
+    const v = await outbox.verify(); console.log('SMTP-TEST verify:', v.ok, v.detail);
+    if (v.ok) { const r = await outbox.sendTransactional({ to: process.env.BBI_SMTP_TEST_TO, subject: 'BBI test email', text: 'This is a test from the Baku Bible Institute website. Email sending works.' }); console.log('SMTP-TEST send:', r.ok, r.error || ''); }
+  })();
 }
 module.exports = app;
