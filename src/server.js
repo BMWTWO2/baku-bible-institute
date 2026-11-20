@@ -627,6 +627,14 @@ app.get('/admin/outbox', A, (req, res) => { const status = ['pending', 'sent', '
 app.post('/admin/outbox/verify', A, async (req, res) => { req.session.mailCheck = await outbox.verify(); res.redirect('/admin/outbox'); });
 app.post('/admin/outbox/:id/send', A, async (req, res) => { const r = await outbox.send(Number(req.params.id), req.session.user.name); audit(req, 'outbox.send', { id: req.params.id, ok: r.ok });
   flash(req, r.ok ? 'Email sent.' : 'Not sent: ' + r.error); res.redirect('/admin/outbox'); });
+// Queue (never send) a one-off notice to every active student in the given sections; {name} is replaced per student. Bruce approves on /admin/outbox.
+app.post('/admin/outbox/compose', A, (req, res) => { const ids = [].concat(req.body.section_ids || []).map(Number).filter(Boolean); const subject = String(req.body.subject || '').trim().slice(0, 200); const body = String(req.body.body_text || '');
+  if (!ids.length || !subject || !body.trim()) { flash(req, 'Pick classes, a subject and a message.'); return res.redirect('/admin/outbox'); }
+  const seen = new Set(); let n = 0;
+  for (const st of db.prepare(`SELECT s.name, COALESCE(s.email, u.email) email FROM enrollments e JOIN students s ON s.id=e.student_id LEFT JOIN users u ON u.id=s.user_id WHERE e.section_id IN (${ids.map(() => '?').join(',')}) AND s.status='active'`).all(...ids)) {
+    const k = String(st.email || '').trim().toLowerCase(); if (!k || seen.has(k)) continue; seen.add(k);
+    if (outbox.queue({ to: st.email, name: st.name, subject, text: body.split('{name}').join(st.name), kind: 'notice', ref: 'compose:' + ids.join(',') })) n++; }
+  audit(req, 'outbox.compose', { sections: ids, n }); flash(req, `${n} email(s) are waiting in the Outbox for your approval — nothing has been sent.`); res.redirect('/admin/outbox'); });
 app.post('/admin/outbox/send-all', A, async (req, res) => { if (req.body.confirm !== 'yes') { flash(req, 'Tick the confirmation box to send all pending emails.'); return res.redirect('/admin/outbox'); }
   let ok = 0, bad = 0; let last = ''; for (const m of outbox.list('pending')) { const r = await outbox.send(m.id, req.session.user.name); if (r.ok) ok++; else { bad++; last = r.error; } }
   audit(req, 'outbox.send_all', { ok, bad }); flash(req, `Sent ${ok}. ${bad ? `Not sent: ${bad} (${last})` : ''}`); res.redirect('/admin/outbox'); });
