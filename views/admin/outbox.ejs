@@ -5,6 +5,19 @@
 <form method="post" action="/admin/outbox/verify" class="inline"><input type="hidden" name="_csrf" value="<%= csrf %>"><button class="btn sm ghost">Check mail credential (sends nothing)</button></form>
 <% if (check) { %><p class="<%= check.ok?'flash':'note' %>"><%= check.detail %></p><% } %>
 <% if (status==='pending' && msgs.length) { %><form method="post" action="/admin/outbox/send-all" class="row"><input type="hidden" name="_csrf" value="<%= csrf %>"><label class="row small"><input type="checkbox" name="confirm" value="yes" style="width:auto"> I have read all <%= msgs.length %> pending emails below and approve sending them</label><button class="btn gold sm">Send all pending</button></form><% } %></section>
+<section class="card rise d1"><h2>Compose a notice</h2>
+<p class="muted">This only queues emails in the Outbox. <b>Nothing is sent until you click Send.</b></p>
+<form method="post" action="/admin/outbox/compose" class="formgrid"><input type="hidden" name="_csrf" value="<%= csrf %>">
+<div class="span"><p style="margin:0 0 6px">Classes</p>
+<% (sections || []).forEach(x=>{ %><label class="row small"><input type="checkbox" name="section_ids" value="<%= x.id %>" style="width:auto"> <%= x.code %> — <%= x.title %></label>
+<% }) %>
+<% if (!(sections || []).length) { %><p class="muted">No classes yet.</p><% } %></div>
+<label>Channel<select name="channel"><option value="email" selected>Email</option></select></label>
+<label class="span">Subject<input name="subject" required maxlength="200"></label>
+<label class="span">Message<textarea name="body_text" lang="az" rows="10" required placeholder="Use {name} for the student's roster name and {opening} for a per-student opening."></textarea></label>
+<label class="span">Per-student openings<textarea name="openings" lang="az" rows="8" placeholder="Name | opening text"></textarea></label>
+<p class="span small muted">Optional. One student per line, written as <code>Name | opening text</code>. Names are matched to the roster name used for {name}, ignoring case and extra spaces (Azeri letters included). A student with no matching line gets an empty opening. Students with no email are skipped.</p>
+<div class="span"><button class="btn gold">Queue in Outbox (do not send)</button></div></form></section>
 <% if (!msgs.length) { %><p class="muted rise">No <%= status==='all'?'':status %> emails.</p><% } %>
 <div class="list rise d2"><% msgs.forEach(m=>{ %><article class="card"><p class="eyebrow"><%= m.kind || 'email' %> · <%= m.created_at %> · <span class="pill <%= {pending:'amber',sent:'green',failed:'red',discarded:''}[m.status] %>"><%= m.status %></span><% if (m.error) { %> · <%= m.error %><% } %></p>
 <p><b>To:</b> <%= m.to_name ? m.to_name + ' ' : '' %>&lt;<%= m.to_email %>&gt;</p>

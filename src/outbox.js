@@ -86,4 +86,50 @@ const tplAssignment = ({ name, code, title, due, instructions }) => ({ subject: 
   text: `Hörmətli ${first(name)},\n\n${OPEN}\n\n${code} dərsi üçün yeni tapşırıq var: «${title}».${due ? `\nSon tarix: ${due} (Bakı vaxtı).` : ''}${instructions ? `\n\n${instructions}` : ''}\n\nTapşırığı istənilən vaxt kabinetinizdən göndərə bilərsiniz:\n${SITE()}/telebe${SIGN}` });
 const tplReturned = ({ name, title, feedback, score }) => ({ subject: `Tapşırığınıza rəy hazırdır: ${title}`,
   text: `Hörmətli ${first(name)},\n\n${OPEN}\n\n«${title}» tapşırığınızı yoxladım. Rəyim:\n\n${feedback}${score ? `\n\n${score}` : ''}\n\nRəyi kabinetinizdə də görə bilərsiniz:\n${SITE()}/telebe${SIGN}` });
-module.exports = { cfg, hasSmtp, canSendTransactional, sendTransactional, queue, list, counts, discard, edit, remove, send, verify, tplAssignment, tplReturned };
+// Personalize a queued notice. Names are matched case/whitespace-insensitively with Azeri locale folding.
+const normName = s => String(s || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLocaleLowerCase('az');
+function parseOpenings(text) {
+  const map = new Map();
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.trim(); if (!line) continue;
+    const i = line.indexOf('|'); if (i < 0) continue;
+    const name = line.slice(0, i).trim(), opening = line.slice(i + 1).trim();
+    if (!name) continue;
+    const k = normName(name); if (!map.has(k)) map.set(k, opening);
+  }
+  return map;
+}
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+// Build pending outbox payloads only. Never sends. {name} and {opening} are replaced per student.
+function composeItems(students, { subject, body, openingsText } = {}) {
+  const openingsProvided = !!String(openingsText || '').trim();
+  const map = parseOpenings(openingsText);
+  const seen = new Set(), seenSkip = new Set(), items = [], unmatched = [], skipped = [];
+  for (const st of students || []) {
+    const name = st.name;
+    const email = String(st.email || '').trim();
+    const k = email.toLowerCase();
+    if (!k || !EMAIL_RE.test(k)) {
+      const skipKey = st.id != null ? 'id:' + st.id : 'name:' + normName(name);
+      if (!seenSkip.has(skipKey)) { seenSkip.add(skipKey); skipped.push(name); }
+      continue;
+    }
+    if (seen.has(k)) continue;
+    seen.add(k);
+    let opening = '';
+    if (openingsProvided) {
+      const ok = normName(name);
+      if (map.has(ok)) opening = map.get(ok);
+      else unmatched.push(name);
+    }
+    items.push({ to: email, name, subject, text: String(body || '').split('{name}').join(name).split('{opening}').join(opening) });
+  }
+  return { items, unmatched, skipped };
+}
+function formatComposeFlash({ n, unmatched, skipped } = {}) {
+  let msg = `${n} email(s) are waiting in the Outbox for your approval — nothing has been sent.`;
+  if (unmatched && unmatched.length) msg += ' No opening matched: ' + unmatched.join(', ') + '.';
+  if (skipped && skipped.length) msg += ' Skipped (no email): ' + skipped.join(', ') + '.';
+  return msg;
+}
+module.exports = { cfg, hasSmtp, canSendTransactional, sendTransactional, queue, list, counts, discard, edit, remove, send, verify, tplAssignment, tplReturned, normName, parseOpenings, composeItems, formatComposeFlash };

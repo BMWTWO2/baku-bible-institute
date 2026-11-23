@@ -623,18 +623,20 @@ app.post('/admin/whatsapp/:id/apply', A, (req, res) => {
 
 // Email outbox: nothing is sent unless Bruce clicks Send here (and EMAIL_SENDING_ENABLED=true).
 app.get('/admin/outbox', A, (req, res) => { const status = ['pending', 'sent', 'failed', 'discarded', 'all'].includes(req.query.status) ? req.query.status : 'pending';
-  res.render('admin/outbox', { title: 'Email outbox', status, msgs: outbox.list(status), counts: outbox.counts(), cfg: outbox.cfg(), check: req.session.mailCheck || null }); delete req.session.mailCheck; });
+  res.render('admin/outbox', { title: 'Email outbox', status, msgs: outbox.list(status), counts: outbox.counts(), cfg: outbox.cfg(), check: req.session.mailCheck || null, sections: sectionsList() }); delete req.session.mailCheck; });
 app.post('/admin/outbox/verify', A, async (req, res) => { req.session.mailCheck = await outbox.verify(); res.redirect('/admin/outbox'); });
 app.post('/admin/outbox/:id/send', A, async (req, res) => { const r = await outbox.send(Number(req.params.id), req.session.user.name); audit(req, 'outbox.send', { id: req.params.id, ok: r.ok });
   flash(req, r.ok ? 'Email sent.' : 'Not sent: ' + r.error); res.redirect('/admin/outbox'); });
-// Queue (never send) a one-off notice to every active student in the given sections; {name} is replaced per student. Bruce approves on /admin/outbox.
+// Queue (never send) a one-off notice to every active student in the given sections; {name} and optional {opening} are replaced per student. Bruce approves on /admin/outbox.
 app.post('/admin/outbox/compose', A, (req, res) => { const ids = [].concat(req.body.section_ids || []).map(Number).filter(Boolean); const subject = String(req.body.subject || '').trim().slice(0, 200); const body = String(req.body.body_text || '');
+  const channel = String(req.body.channel || 'email').trim().toLowerCase();
+  if (channel && channel !== 'email') { flash(req, 'Only the email channel can be queued from this form.'); return res.redirect('/admin/outbox'); }
   if (!ids.length || !subject || !body.trim()) { flash(req, 'Pick classes, a subject and a message.'); return res.redirect('/admin/outbox'); }
-  const seen = new Set(); let n = 0;
-  for (const st of db.prepare(`SELECT s.name, COALESCE(s.email, u.email) email FROM enrollments e JOIN students s ON s.id=e.student_id LEFT JOIN users u ON u.id=s.user_id WHERE e.section_id IN (${ids.map(() => '?').join(',')}) AND s.status='active'`).all(...ids)) {
-    const k = String(st.email || '').trim().toLowerCase(); if (!k || seen.has(k)) continue; seen.add(k);
-    if (outbox.queue({ to: st.email, name: st.name, subject, text: body.split('{name}').join(st.name), kind: 'notice', ref: 'compose:' + ids.join(',') })) n++; }
-  audit(req, 'outbox.compose', { sections: ids, n }); flash(req, `${n} email(s) are waiting in the Outbox for your approval — nothing has been sent.`); res.redirect('/admin/outbox'); });
+  const students = db.prepare(`SELECT s.id, s.name, COALESCE(s.email, u.email) email FROM enrollments e JOIN students s ON s.id=e.student_id LEFT JOIN users u ON u.id=s.user_id WHERE e.section_id IN (${ids.map(() => '?').join(',')}) AND s.status='active'`).all(...ids);
+  const { items, unmatched, skipped } = outbox.composeItems(students, { subject, body, openingsText: req.body.openings });
+  let n = 0;
+  for (const it of items) { if (outbox.queue({ to: it.to, name: it.name, subject: it.subject, text: it.text, kind: 'notice', ref: 'compose:' + ids.join(',') })) n++; }
+  audit(req, 'outbox.compose', { sections: ids, n }); flash(req, outbox.formatComposeFlash({ n, unmatched, skipped })); res.redirect('/admin/outbox'); });
 app.post('/admin/outbox/send-all', A, async (req, res) => { if (req.body.confirm !== 'yes') { flash(req, 'Tick the confirmation box to send all pending emails.'); return res.redirect('/admin/outbox'); }
   let ok = 0, bad = 0; let last = ''; for (const m of outbox.list('pending')) { const r = await outbox.send(m.id, req.session.user.name); if (r.ok) ok++; else { bad++; last = r.error; } }
   audit(req, 'outbox.send_all', { ok, bad }); flash(req, `Sent ${ok}. ${bad ? `Not sent: ${bad} (${last})` : ''}`); res.redirect('/admin/outbox'); });
