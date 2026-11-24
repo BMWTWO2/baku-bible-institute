@@ -13,3 +13,4 @@ data/
 .bbi_test_users_env
 .bbi_inbound_email_token
 .bbi_session_secret
+routine-work/draft-backups/

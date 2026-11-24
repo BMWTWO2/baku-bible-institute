@@ -82,6 +82,10 @@ api.post('/:id/reported', (req, res) => { if (!lessons.markReported(Number(req.p
 api.get('/overview/:id', (req, res) => { const o = lessons.overview(Number(req.params.id), BASE_URL(req)); if (!o) return res.status(404).json({ error: 'not a five-question submission' }); res.json(o); });
 api.get('/assignments/:id/overview', (req, res) => { const a = lessons.assignment(req.params.id); if (!lessons.isQA(a)) return res.status(404).json({ error: 'not a five-question assignment' });
   res.json({ assignment_id: a.id, course_code: a.code, title_az: a.title_az, published: !!a.published, questions: lessons.questions(a.id), submissions: lessons.submissionsFor(a.id).map(id => lessons.overview(id, BASE_URL(req))) }); });
+api.get('/:id/draft', (req, res) => { const s = hw.get(req.params.id); if (!s) return res.status(404).json({ error: 'not found' });
+  res.json({ id: s.id, status: s.status, lang: s.lang, student_first_name: String(s.student_name || '').split(' ')[0],
+    course_code: s.course_code, title: s.title, translation_en: s.translation_en || null, draft_en: s.draft_en || null,
+    final_en: s.final_en || null, return_az: s.return_az || null, drafted_by: s.drafted_by || null, drafted_at: s.drafted_at || null }); });
 api.post('/:id/draft', (req, res) => { const s = hw.get(req.params.id); if (!s) return res.status(404).json({ error: 'not found' });
   const draft = String(req.body?.draft_en || '').trim(); const tr = String(req.body?.translation_en || '').trim();
   if (!draft) return res.status(400).json({ error: 'draft_en is required' });

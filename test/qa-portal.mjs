@@ -85,6 +85,13 @@ try {
   assert.equal(db.prepare('SELECT status FROM hw_submissions WHERE id=?').get(h1.id).status, 'drafted');
   step('assistant review: per-answer alignment + 1–5 score → suggested 20/30, status drafted');
 
+  const dg = await api('/' + h1.id + '/draft'); assert.equal(dg.status, 200); assert.equal(dg.j.status, 'drafted');
+  assert.ok(dg.j.draft_en); assert.ok(dg.j.translation_en); assert.equal(dg.j.student_first_name, 'Aysel');
+  assert.equal(JSON.stringify(dg.j).includes('@test.invalid'), false);
+  assert.equal((await fetch(BASE + '/api/homework/' + h1.id + '/draft')).status, 401);
+  assert.equal((await api('/99999/draft')).status, 404);
+  step('GET /:id/draft returns draft_en and translation_en (no email); 401 without token, 404 if missing');
+
   const rep = (await api('/needs-report')).j.items; assert.equal(rep.length, 1); assert.match(rep[0].message_md, /Questions chosen: 1, 3, 4/); assert.match(rep[0].message_md, /20 \/ 30 \(67%\)/); assert.equal(rep[0].student_first_name, 'Aysel');
   assert.equal((await api('/' + h1.id + '/reported', {})).status, 200); assert.equal((await api('/needs-report')).j.items.length, 0);
   assert.equal((await api('/assignments/' + aid + '/overview')).j.submissions.length, 2);
