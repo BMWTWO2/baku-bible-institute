@@ -106,4 +106,27 @@ async function autoReturn(id) {
   try { const az = await chat('Translate this teacher feedback into warm, simple Azerbaijani (Latin script). Keep the meaning exactly; do not add anything. Output only the translation.', s.final_en);
     return setReturn(id, az, 'Homework Helper (AI)'); } catch { console.error('autoReturn failed for', id); return false; }
 }
-module.exports = { scoreFor, STATUSES, detectLang, get, all, byStatus, forStudent, counts, create, setMediaNote, setAssignment, setDraft, saveEdit, approve, unapprove, setReturn, remove, llmEnabled, autoDraft, autoReturn };
+function reviewedFlag(v) { return v === true || v === 'yes' || v === 'true'; }
+function planApprove(id, { score, override, reviewed, final_en, by, onlyDrafted } = {}) {
+  const s = get(id); if (!s) return { ok: false, code: 404, error: 'not found' };
+  if (s.status === 'returned') return { ok: false, code: 409, error: 'Already returned to the student.', status: s.status };
+  if (onlyDrafted && s.status !== 'drafted') return { ok: false, code: 409, error: 'only drafted submissions can be approved this way', status: s.status };
+  const text = String(final_en != null && String(final_en).trim() !== '' ? final_en : (s.final_en || s.draft_en || '')).trim();
+  if (!text) return { ok: false, code: 400, error: 'Write or edit the English correction first.' };
+  const num = v => (v == null || String(v).trim() === '') ? null : Number(v);
+  const raw = num(score); const ovr = override === undefined ? null : num(override);
+  if ([raw, ovr].some(v => v != null && (!isFinite(v) || v < 0 || (s.max_points != null && v > s.max_points)))) {
+    return { ok: false, code: 400, error: `Scores must be numbers from 0 to ${s.max_points ?? 'the max'}.` };
+  }
+  if (s.max_points != null && raw == null && ovr == null) return { ok: false, code: 400, error: 'Enter the score (points) before approving.' };
+  if (!reviewedFlag(reviewed)) return { ok: false, code: 400, error: 'reviewed must be true', needs_review: true };
+  const sc = scoreFor(s, raw, ovr);
+  return { ok: true, id: s.id, status: 'approved_by_bruce', final_en: text, raw_score: sc.raw_score, deduction_points: sc.deduction_points, final_score: sc.final_score, score_overridden: sc.score_overridden || 0, approved_by: String(by || 'Pastor Bruce Wright').slice(0, 60), score: sc };
+}
+function applyApprove(plan) {
+  if (!plan || !plan.ok) return { ok: false, code: 400, error: 'invalid approve plan' };
+  if (!approve(plan.id, plan.final_en, plan.approved_by, plan.score)) return { ok: false, code: 409, error: 'Already returned to the student.' };
+  const s = get(plan.id);
+  return { ok: true, id: s.id, status: s.status, raw_score: s.raw_score, deduction_points: s.deduction_points, final_score: s.final_score, score_overridden: s.score_overridden, approved_by: s.approved_by, approved_at: s.approved_at };
+}
+module.exports = { scoreFor, STATUSES, detectLang, get, all, byStatus, forStudent, counts, create, setMediaNote, setAssignment, setDraft, saveEdit, approve, unapprove, setReturn, remove, llmEnabled, autoDraft, autoReturn, planApprove, applyApprove };

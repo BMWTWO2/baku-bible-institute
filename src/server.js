@@ -83,9 +83,13 @@ api.get('/overview/:id', (req, res) => { const o = lessons.overview(Number(req.p
 api.get('/assignments/:id/overview', (req, res) => { const a = lessons.assignment(req.params.id); if (!lessons.isQA(a)) return res.status(404).json({ error: 'not a five-question assignment' });
   res.json({ assignment_id: a.id, course_code: a.code, title_az: a.title_az, published: !!a.published, questions: lessons.questions(a.id), submissions: lessons.submissionsFor(a.id).map(id => lessons.overview(id, BASE_URL(req))) }); });
 api.get('/:id/draft', (req, res) => { const s = hw.get(req.params.id); if (!s) return res.status(404).json({ error: 'not found' });
+  let gradebook_points = null;
+  if (s.assignment_id && s.student_id) { const a = db.prepare('SELECT grade_item_id FROM assignments WHERE id=?').get(s.assignment_id);
+    if (a?.grade_item_id) { const g = db.prepare('SELECT points FROM grades WHERE grade_item_id=? AND student_id=?').get(a.grade_item_id, s.student_id); if (g && g.points != null) gradebook_points = g.points; } }
   res.json({ id: s.id, status: s.status, lang: s.lang, student_first_name: String(s.student_name || '').split(' ')[0],
     course_code: s.course_code, title: s.title, translation_en: s.translation_en || null, draft_en: s.draft_en || null,
-    final_en: s.final_en || null, return_az: s.return_az || null, drafted_by: s.drafted_by || null, drafted_at: s.drafted_at || null }); });
+    final_en: s.final_en || null, return_az: s.return_az || null, drafted_by: s.drafted_by || null, drafted_at: s.drafted_at || null,
+    raw_score: s.raw_score ?? null, final_score: s.final_score ?? null, max_points: s.max_points ?? null, gradebook_points }); });
 api.post('/:id/draft', (req, res) => { const s = hw.get(req.params.id); if (!s) return res.status(404).json({ error: 'not found' });
   const draft = String(req.body?.draft_en || '').trim(); const tr = String(req.body?.translation_en || '').trim();
   if (!draft) return res.status(400).json({ error: 'draft_en is required' });
@@ -94,6 +98,14 @@ api.post('/:id/draft', (req, res) => { const s = hw.get(req.params.id); if (!s) 
   const final = String(req.body?.final_en || '').trim();
   if (final) { const cur = hw.get(s.id); if (cur.status !== 'drafted') return res.status(409).json({ error: 'final_en not saved; not drafted', status: cur.status }); hw.saveEdit(s.id, final); }
   res.json({ ok: true, id: s.id, status: 'drafted', final_en_saved: !!final }); });
+api.post('/:id/approve', (req, res) => {
+  const b = req.body || {};
+  const plan = hw.planApprove(Number(req.params.id), { score: b.score, override: b.final_override, reviewed: b.reviewed, by: b.by, onlyDrafted: true });
+  if (!plan.ok) return res.status(plan.code).json({ error: plan.error, status: plan.status || null });
+  if (b.dry_run) return res.json({ ok: true, dry_run: true, id: plan.id, would_write: { status: plan.status, raw_score: plan.raw_score, deduction_points: plan.deduction_points, final_score: plan.final_score, score_overridden: plan.score_overridden, approved_by: plan.approved_by, final_en_len: plan.final_en.length } });
+  const r = hw.applyApprove(plan); if (!r.ok) return res.status(r.code).json({ error: r.error });
+  res.json(r);
+});
 api.get('/needs-azeri', (req, res) => res.json({ items: hw.byStatus('approved_by_bruce').map(apiItem) }));
 api.post('/:id/return', (req, res) => { const s = hw.get(req.params.id); if (!s) return res.status(404).json({ error: 'not found' });
   const az = String(req.body?.return_az || '').trim(); if (!az) return res.status(400).json({ error: 'return_az is required' });
@@ -537,13 +549,13 @@ app.post('/admin/homework/anytime/:id/save', T, (req, res) => { const s = hwOr40
   res.redirect('/admin/homework/anytime/' + s.id); });
 app.post('/admin/homework/anytime/:id/approve', T, async (req, res) => { const s = hwOr404(req, res); if (!s) return;
   const text = String(req.body.final_en || '').trim();
-  if (!text) { flash(req, 'Write or edit the English correction first.'); return res.redirect('/admin/homework/anytime/' + s.id); }
-  const num = v => (v == null || String(v).trim() === '') ? null : Number(v);
-  const raw = num(req.body.raw_score), ovr = num(req.body.final_override);
-  if ([raw, ovr].some(v => v != null && (!isFinite(v) || v < 0 || (s.max_points != null && v > s.max_points)))) { hw.saveEdit(s.id, text); flash(req, `Scores must be numbers from 0 to ${s.max_points ?? 'the max'}.`); return res.redirect('/admin/homework/anytime/' + s.id); }
-  if (s.max_points != null && raw == null && ovr == null) { hw.saveEdit(s.id, text); flash(req, 'Enter the score (points) before approving.'); return res.redirect('/admin/homework/anytime/' + s.id); }
-  if (req.body.reviewed !== 'yes') { hw.saveEdit(s.id, text); flash(req, 'Edits saved. Tick “I have reviewed and edited this correction” to approve.'); return res.redirect('/admin/homework/anytime/' + s.id); }
-  if (!hw.approve(s.id, text, req.session.user.name, hw.scoreFor(s, raw, ovr))) { flash(req, 'Already returned to the student.'); return res.redirect('/admin/homework/anytime/' + s.id); }
+  const plan = hw.planApprove(s.id, { score: req.body.raw_score, override: req.body.final_override, reviewed: req.body.reviewed, final_en: text, by: req.session.user.name });
+  if (!plan.ok) {
+    if (plan.code !== 409 && text) hw.saveEdit(s.id, text);
+    flash(req, plan.needs_review ? 'Edits saved. Tick “I have reviewed and edited this correction” to approve.' : plan.error);
+    return res.redirect('/admin/homework/anytime/' + s.id);
+  }
+  const r = hw.applyApprove(plan); if (!r.ok) { flash(req, r.error); return res.redirect('/admin/homework/anytime/' + s.id); }
   audit(req, 'homework.anytime.approve', { id: s.id });
   const done = await hw.autoReturn(s.id);
   flash(req, done ? 'Approved. The Azeri version was created and returned to the student.' : 'Approved. Your English correction is queued for Azeri translation; the student will see it once it is translated.');

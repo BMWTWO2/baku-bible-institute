@@ -35,7 +35,7 @@
 <label>Final score override (optional)<input class="num" type="number" name="final_override" min="0" step="0.5" value="<%= s.score_overridden ? s.final_score : '' %>" <%= locked?'readonly':'' %>></label></div>
 <% if (s.final_score!=null) { %><p class="small">Saved: raw <b><%= s.raw_score ?? '—' %></b> − deduction <b><%= s.deduction_points ?? 0 %></b> = final <b><%= s.final_score %></b><%= s.max_points!=null ? ' / '+s.max_points : '' %><%= s.score_overridden ? ' (your override)' : '' %></p><% } %>
 <p class="small muted">The final score = raw − late deduction, unless you override it. It goes to the gradebook only when the Azeri feedback is returned.</p></div>
-<% if (!locked) { %><label class="row"><input type="checkbox" name="reviewed" value="yes" style="width:auto"> I have reviewed and edited this correction, and it is ready to be translated into Azeri and returned to the student.</label>
+<% if (!locked) { %><label class="row"><input type="checkbox" name="reviewed" value="yes" required style="width:auto"> I have reviewed and edited this correction, and it is ready to be translated into Azeri and returned to the student.</label>
 <div class="row"><button class="btn gold">Approve my correction</button>
 <button class="btn ghost" formaction="/admin/homework/anytime/<%= s.id %>/save">Save edits only</button></div><% } %></form>
 <% if (s.status==='approved_by_bruce') { %><form method="post" action="/admin/homework/anytime/<%= s.id %>/unapprove"><input type="hidden" name="_csrf" value="<%= csrf %>"><button class="link">Withdraw approval</button></form><% } %>

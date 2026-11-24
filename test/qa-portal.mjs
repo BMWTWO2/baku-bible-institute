@@ -98,6 +98,13 @@ try {
   const dg2 = await api('/' + h1.id + '/draft'); assert.equal(dg2.j.status, 'drafted'); assert.equal(dg2.j.draft_en, letter); assert.equal(dg2.j.final_en, letter);
   step('POST /:id/draft can update draft_en and final_en while status stays drafted');
 
+  assert.equal((await api('/' + h1.id + '/approve', { score: 20, dry_run: true })).status, 400);
+  assert.equal(db.prepare('SELECT status FROM hw_submissions WHERE id=?').get(h1.id).status, 'drafted');
+  const dry = await api('/' + h1.id + '/approve', { score: 20, reviewed: true, dry_run: true });
+  assert.equal(dry.status, 200); assert.equal(dry.j.dry_run, true); assert.equal(dry.j.would_write.final_score, 20); assert.equal(dry.j.would_write.status, 'approved_by_bruce');
+  assert.equal(db.prepare('SELECT status FROM hw_submissions WHERE id=?').get(h1.id).status, 'drafted');
+  step('POST /:id/approve dry_run validates score 20 and rejects a missing reviewed flag; status stays drafted');
+
   const rep = (await api('/needs-report')).j.items; assert.equal(rep.length, 1); assert.match(rep[0].message_md, /Questions chosen: 1, 3, 4/); assert.match(rep[0].message_md, /20 \/ 30 \(67%\)/); assert.equal(rep[0].student_first_name, 'Aysel');
   assert.equal((await api('/' + h1.id + '/reported', {})).status, 200); assert.equal((await api('/needs-report')).j.items.length, 0);
   assert.equal((await api('/assignments/' + aid + '/overview')).j.submissions.length, 2);

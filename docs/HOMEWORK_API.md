@@ -30,6 +30,7 @@ JSON in, JSON out. Base: `https://bakubibleinstitute.org/api/homework`.
 | GET | `/needs-draft` | `{items:[…]}` with status `submitted` (id, course_code, title, lang, body, due/late info) |
 | GET | `/:id/draft` | `{id, status, lang, student_first_name, course_code, title, translation_en, draft_en, final_en, return_az, drafted_by, drafted_at}` for one submission (404 if missing). First name only; never email or phone. Lets an assistant re-read a drafted letter before editing `draft_en`. |
 | POST | `/:id/draft` | body `{translation_en, draft_en, by?, final_en?}`; `translation_en` required when `lang` is `az`. Optional `final_en` is saved only while status is `drafted` (does not approve or return). 409 once Bruce has approved |
+| POST | `/:id/approve` | body `{score, reviewed:true, dry_run?, by?}`. Same validation and writes as the admin Approve form. Requires `reviewed === true` and a score in range. Only `drafted` items. `dry_run:true` validates and returns `would_write` without changing anything. |
 | GET | `/needs-azeri` | `{items:[…]}` with status `approved_by_bruce`, including Bruce's `final_en` and `final_score` |
 | POST | `/:id/return` | body `{return_az, by?}`. **Refused (409) unless status is `approved_by_bruce`.** Sets `returned` |
 
