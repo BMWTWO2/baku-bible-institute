@@ -91,7 +91,9 @@ api.post('/:id/draft', (req, res) => { const s = hw.get(req.params.id); if (!s) 
   if (!draft) return res.status(400).json({ error: 'draft_en is required' });
   if (s.lang === 'az' && !tr) return res.status(400).json({ error: 'translation_en is required for Azeri submissions' });
   if (!hw.setDraft(s.id, { translation_en: tr || null, draft_en: draft, by: String(req.body?.by || 'assistant').slice(0, 60) })) return res.status(409).json({ error: 'already approved by Bruce or returned; draft not changed', status: s.status });
-  res.json({ ok: true, id: s.id, status: 'drafted' }); });
+  const final = String(req.body?.final_en || '').trim();
+  if (final) { const cur = hw.get(s.id); if (cur.status !== 'drafted') return res.status(409).json({ error: 'final_en not saved; not drafted', status: cur.status }); hw.saveEdit(s.id, final); }
+  res.json({ ok: true, id: s.id, status: 'drafted', final_en_saved: !!final }); });
 api.get('/needs-azeri', (req, res) => res.json({ items: hw.byStatus('approved_by_bruce').map(apiItem) }));
 api.post('/:id/return', (req, res) => { const s = hw.get(req.params.id); if (!s) return res.status(404).json({ error: 'not found' });
   const az = String(req.body?.return_az || '').trim(); if (!az) return res.status(400).json({ error: 'return_az is required' });
